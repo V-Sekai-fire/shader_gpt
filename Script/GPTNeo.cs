@@ -51,7 +51,7 @@ public class GPTNeo : GPTBase {
 		ctx.Release(next_tokens);
 	}
 
-	void GPTNeoSelfAttention(ref Texture hidden_states, string path, int position_id, int layerId) {
+	void GPTNeoSelfAttention(ref Texture hidden_states, string path, int position_id, int layer_id) {
 		var query = nn.Linear(hidden_states, parameters[$"{path}.q_proj.weight"]);
 		var key   = nn.Linear(hidden_states, parameters[$"{path}.k_proj.weight"]);
 		var value = nn.Linear(hidden_states, parameters[$"{path}.v_proj.weight"]);
@@ -62,7 +62,7 @@ public class GPTNeo : GPTBase {
 		BatchRelease(nn.Copy(keys,   MarkRelease(key),   outputOffset:new Vector2Int(position_id, 0), size:ctx.Size(key)));
 		BatchRelease(nn.Copy(values, MarkRelease(value), outputOffset:new Vector2Int(position_id, 0), size:ctx.Size(value)));
 
-		var window_size = layerId%2==1 ? config.window_size : config.max_position_embeddings;
+		var window_size = layer_id%2==1 ? config.window_size : config.max_position_embeddings;
 		var causal_mask = new Vector4(1, 1, position_id+1-window_size, position_id+1);
 		var attn_scores = BatchRelease(nn.Linear(MarkRelease(query), keys, head:config.num_heads));
 		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores), group:config.num_heads, rangeMask:causal_mask));
@@ -70,10 +70,10 @@ public class GPTNeo : GPTBase {
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), parameters[$"{path}.out_proj.weight"]));
 		hidden_states = BatchRelease(nn.AddAct(MarkRelease(hidden_states), parameters[$"{path}.out_proj.bias"]));
 	}
-	void GPTNeoBlock(ref Texture hidden_states, string path, int position_id, int layerId) {
+	void GPTNeoBlock(ref Texture hidden_states, string path, int position_id, int layer_id) {
 		var residual = hidden_states;
 		hidden_states = nn.GroupNorm(residual, parameters[$"{path}.ln_1.weight"], parameters[$"{path}.ln_1.bias"], config.layer_norm_epsilon);
-		GPTNeoSelfAttention(ref hidden_states, path:$"{path}.attn.attention", position_id:position_id, layerId:layerId);
+		GPTNeoSelfAttention(ref hidden_states, path:$"{path}.attn.attention", position_id:position_id, layer_id:layer_id);
 		hidden_states = BatchRelease(nn.AddAct(MarkRelease(hidden_states), MarkRelease(residual)));
 
 		residual = hidden_states;
@@ -87,7 +87,7 @@ public class GPTNeo : GPTBase {
 	Texture GPTNeoModel(Texture input_ids, string path, int position_id) {
 		var hidden_states = nn.Embedding(input_ids, parameters[$"{path}.wte.weight.T"], parameters[$"{path}.wpe.weight.T"], transposeWeight:true);
 		for(int i=0; i<config.num_layers; i++)
-			GPTNeoBlock(ref hidden_states, path:$"{path}.h.{i}", position_id:position_id, layerId:i);
+			GPTNeoBlock(ref hidden_states, path:$"{path}.h.{i}", position_id:position_id, layer_id:i);
 		hidden_states = BatchRelease(nn.GroupNorm(MarkRelease(hidden_states), parameters[$"{path}.ln_f.weight"], parameters[$"{path}.ln_f.bias"], config.layer_norm_epsilon));
 		return hidden_states;
 	}
