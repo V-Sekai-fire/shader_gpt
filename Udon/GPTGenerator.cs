@@ -13,18 +13,16 @@ public class GPTGenerator : UdonSharp.UdonSharpBehaviour
 public class GPTGenerator : MonoBehaviour
 #endif
 {
-	[Header("Model")]
 	public GameObject modelPrefab;
-
-	[Header("Config")]
 	public int maxLength = 2048;
 	public float temperature = 0;
 	public int frameStep = 1;
 #if UDON
-	public VRC.Udon.UdonBehaviour callback;
+	public VRC.Udon.UdonBehaviour eventTarget;
 #else
-	public MonoBehaviour callback;
+	public MonoBehaviour eventTarget;
 #endif
+	public string eventMethod;
 
 	private Material[] materials;
 	private Material[] matDynRangeMask;
@@ -65,17 +63,26 @@ public class GPTGenerator : MonoBehaviour
 			if(mat.shaderKeywords.Length >= 1 && mat.shaderKeywords[0] == "FUNC_GUMBEL")
 				matGumbel = mat;
 		}
-		matDynRangeMask = Resize(matDynRangeMask, matDynRangeMaskLength);
-		matDynOutputOff = Resize(matDynOutputOff, matDynOutputOffLength);
-		matDynRotaryOff = Resize(matDynRotaryOff, matDynRotaryOffLength);
+		matDynRangeMask = Take(matDynRangeMask, matDynRangeMaskLength);
+		matDynOutputOff = Take(matDynOutputOff, matDynOutputOffLength);
+		matDynRotaryOff = Take(matDynRotaryOff, matDynRotaryOffLength);
 	}
 
-	private int tokenIndex;
+	// you need to set inputIndex and inputTokens before enabling
+	[System.NonSerialized] public int inputIndex;
 	[System.NonSerialized] public int[] inputTokens;
+	[System.NonSerialized] public int outputIndex;
 	[System.NonSerialized] public int outputToken;
-	void RunModel() {
-		var deltaRangeMask = new Vector4(0, 0, tokenIndex-1, tokenIndex-1);
-		var deltaOutputOff = new Vector4(tokenIndex-1, 0, 0, 0);
+	void GenerateToken() {
+		// make sure the buffer stores the last token
+		if(0 < inputIndex && inputIndex <= inputTokens.Length) {
+			matOutput.SetVector("_Weight", Vector4.zero);
+			matOutput.SetVector("_Bias", new Vector4(inputTokens[inputIndex-1],inputIndex-1,0,0));
+			Graphics.Blit(null, bufOutput, matOutput, 0);
+		}
+
+		var deltaRangeMask = new Vector4(0, 0, inputIndex-1, inputIndex-1);
+		var deltaOutputOff = new Vector4(inputIndex-1, 0, 0, 0);
 		var deltaRotaryOff = deltaOutputOff;
 		foreach(var mat in matDynRangeMask)
 			mat.SetVector("_RangeMask", mat.GetVector("_RangeMask") + deltaRangeMask);
@@ -85,12 +92,12 @@ public class GPTGenerator : MonoBehaviour
 			mat.SetVector("_RotaryOff", mat.GetVector("_RotaryOff") + deltaRotaryOff);
 
 		matGumbel.SetVector("_Weight", Vector4.one*temperature);
-		if(tokenIndex < inputTokens.Length) {
+		if(inputIndex < inputTokens.Length) {
 			matOutput.SetVector("_Weight", Vector4.zero);
-			matOutput.SetVector("_Bias", new Vector4(inputTokens[tokenIndex],tokenIndex,0,0));
+			matOutput.SetVector("_Bias", new Vector4(inputTokens[inputIndex],inputIndex,0,0));
 		} else {
 			matOutput.SetVector("_Weight", Vector4.one);
-			matOutput.SetVector("_Bias", new Vector4(0,tokenIndex,0,0));
+			matOutput.SetVector("_Bias", new Vector4(0,inputIndex,0,0));
 		}
 		foreach(var mat in materials)
 			Graphics.Blit(null, (RenderTexture)mat.GetTexture("_OutputTex"), mat, 0);
@@ -101,14 +108,13 @@ public class GPTGenerator : MonoBehaviour
 			mat.SetVector("_OutputOff", mat.GetVector("_OutputOff") - deltaOutputOff);
 		foreach(var mat in matDynRotaryOff)
 			mat.SetVector("_RotaryOff", mat.GetVector("_RotaryOff") - deltaRotaryOff);
-		tokenIndex++;
+		inputIndex++;
 	}
 
 	private int frameIndex;
 	public void OnEnable() {
 		if(!matOutput)
 			LoadModel();
-		tokenIndex = 0;
 		frameIndex = 0;
 	}
 	public void Update() {
@@ -117,11 +123,11 @@ public class GPTGenerator : MonoBehaviour
 			return;
 		}
 		frameIndex = frameStep;
-		if(tokenIndex >= maxLength) {
+		if(inputIndex >= maxLength) {
 			this.enabled = false;
 			return;
 		}
-		RunModel();
+		GenerateToken();
 #if UDON
 		VRCAsyncGPUReadback.Request(bufOutput, 0, TextureFormat.RGBAFloat, (VRC.Udon.Common.Interfaces.IUdonEventReceiver)(Component)this);
 #else
@@ -142,19 +148,19 @@ public class GPTGenerator : MonoBehaviour
 #else
 		request.GetData<Color>().CopyTo(readbackData);
 #endif
-		var index = Mathf.RoundToInt(readbackData[0].g);
-		if(index <= tokenIndex) { // race condition
-			outputToken = Mathf.RoundToInt(readbackData[0].r);
+		outputIndex = Mathf.RoundToInt(readbackData[0].g);
+		if(outputIndex >= inputIndex)
+			return; // skip tokens from last sequence
+		outputToken = Mathf.RoundToInt(readbackData[0].r);
 #if UDON
-			callback.SendCustomEvent("OnOutputToken");
+		eventTarget.SendCustomEvent(eventMethod);
 #else
-			callback.SendMessage("OnOutputToken");
+		eventTarget.SendMessage(eventMethod);
 #endif
-		}
 	}
 
-	static Material[] Resize(Material[] src, int n) {
-		var dst = new Material[n];
+	static T[] Take<T>(T[] src, int n) {
+		var dst = new T[n];
 		System.Array.Copy(src, dst, n);
 		return dst;
 	}

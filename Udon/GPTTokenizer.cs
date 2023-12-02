@@ -41,22 +41,12 @@ public class GPTTokenizer : MonoBehaviour
 #endif
 	}
 
-	public string testText;
 	void OnEnable() {
 		if(vocab == null)
 			LoadTokenizer();
-
-		var tokens = Encode(testText);
-		var text = "";
-		for(int i=0; i<tokens.Length; i++)
-			text = string.Format("{0}{1},", text, tokens[i]);
-		Debug.Log(text);
 	}
 
-	private int utfCode, utfStep;
-	public void ResetDecode() {
-		utfStep = utfCode = 0;
-	}
+	public int decodeState;
 	public string Decode(int token) {
 		if(token < 0 || token >= vocab.Length)
 			return string.Format("<error:{0}>", token);
@@ -67,23 +57,16 @@ public class GPTTokenizer : MonoBehaviour
 			var b = char.ConvertToUtf32(s, i);
 			if(b <= 0b01111111)
 				text += char.ConvertFromUtf32(b);
-			else if(b <= 0b10111111) {
-				utfCode = (b & 0b111111) | (utfCode << 6);
-				if(--utfStep == 0) {
-					if(utfCode <= 0xD7FF)
-						text += char.ConvertFromUtf32(utfCode);
-					else if(utfCode >= 0xE000 && utfCode <= 0x10FFFF)
-						text += char.ConvertFromUtf32(utfCode);
-				}
-			} else if(b <= 0b11011111) {
-				utfCode = (b & 0b11111);
-				utfStep = 1;
-			} else if(b <= 0b11101111) {
-				utfCode = (b & 0b1111);
-				utfStep = 2;
-			} else {
-				utfCode = (b & 0b111);
-				utfStep = 3;
+			else if(b > 0b10111111)
+				decodeState = b;
+			else {
+				decodeState = (decodeState << 6) | (0b00111111 & b);
+				if((decodeState & -0x800) == 0x3000)
+					text += char.ConvertFromUtf32(decodeState - 0x3000);
+				else if((decodeState & -0x10000) == 0xe0000)
+					text += char.ConvertFromUtf32(decodeState - 0xe0000);
+				else if((decodeState & -0x200000) == 0x3c00000)
+					text += char.ConvertFromUtf32(decodeState - 0x3c00000);
 			}
 		}
 		return text;
@@ -104,7 +87,7 @@ public class GPTTokenizer : MonoBehaviour
 			BytePairEncode(parts);
 			i = j;
 		}
-		return Resize(tokenArray, tokenCount);
+		return Take(tokenArray, tokenCount);
 	}
 	void BytePairEncode(string[] parts) {
 		var n = parts.Length;
@@ -171,19 +154,19 @@ public class GPTTokenizer : MonoBehaviour
 			if (c <= 0x7F) {
 				s += char.ConvertFromUtf32(c);
 			} else if (c <= 0x07FF) {
-				s += char.ConvertFromUtf32(0xC0 | (c >> 6));
-				s += char.ConvertFromUtf32(0x80 | (c & 0x3F));
+				s += char.ConvertFromUtf32(0b11000000 | (c >> 6));
+				s += char.ConvertFromUtf32(0b10000000 | (0b00111111 & c));
 			} else {
-				s += char.ConvertFromUtf32(0xE0 | (c >> 12));
-				s += char.ConvertFromUtf32(0x80 | ((c >> 6) & 0x3F));
-				s += char.ConvertFromUtf32(0x80 | (c & 0x3F));
+				s += char.ConvertFromUtf32(0b11100000 | (c >> 12));
+				s += char.ConvertFromUtf32(0b10000000 | (0b00111111 & (c >> 6)));
+				s += char.ConvertFromUtf32(0b10000000 | (0b00111111 & c));
 			}
 			i += c < 0x10000 ? 1 : 2;
 		}
 		return s;
 	}
-	static int[] Resize(int[] src, int n) {
-		var dst = new int[n];
+	static T[] Take<T>(T[] src, int n) {
+		var dst = new T[n];
 		System.Array.Copy(src, dst, n);
 		return dst;
 	}

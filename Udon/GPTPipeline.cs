@@ -18,13 +18,16 @@ public class GPTPipeline : MonoBehaviour
 	private bool eos;
 	public void OnEnable() {
 #if UDON
-		generator.callback = (VRC.Udon.UdonBehaviour)(Component)this;
+		generator.eventTarget = (VRC.Udon.UdonBehaviour)(Component)this;
 #else
-		generator.callback = this;
+		generator.eventTarget = this;
 #endif
+		generator.eventMethod = nameof(OnOutputToken);
+		
 		generator.inputTokens = tokenizer.Encode(inputText.text);
+		generator.inputIndex = 0;
+		tokenizer.decodeState = 0;
 		outputText.text = "";
-		tokenizer.ResetDecode();
 		eos = false;
 		generator.enabled = true;
 	}
