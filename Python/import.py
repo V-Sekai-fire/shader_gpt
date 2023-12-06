@@ -153,11 +153,14 @@ def main():
 	from transformers import AutoModelForCausalLM, AutoTokenizer
 	import argparse
 	parser = argparse.ArgumentParser()
-	parser.add_argument('model')
-	parser.add_argument('folder')
+	parser.add_argument('model', help='model id or path. for example: roneneldan/TinyStories-1M')
+	parser.add_argument('folder', help='save path. for example: ../Model/')
 	args = parser.parse_args()
 
 	folder = Path(args.folder)
+	if re.search(r"[/\\]$", args.folder):
+		folder /= Path(args.model).name
+	print(f"import model from {args.model} to {folder}")
 	model = AutoModelForCausalLM.from_pretrained(args.model)
 	tokenizer = AutoTokenizer.from_pretrained(args.model)
 	export_lm(model, folder)
