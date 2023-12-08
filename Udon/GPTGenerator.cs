@@ -16,6 +16,7 @@ public class GPTGenerator : MonoBehaviour
 	public GameObject modelPrefab;
 	public int maxLength = 2048;
 	public float temperature = 0;
+	public int vocabSkipLast = 0;
 	public int frameStep = 1;
 #if UDON
 	public VRC.Udon.UdonBehaviour eventTarget;
@@ -29,6 +30,7 @@ public class GPTGenerator : MonoBehaviour
 	private Material[] matDynOutputOff;
 	private Material[] matDynRotaryOff;
 	private Material matGumbel;
+	private Material matSample;
 	private Material matOutput;
 	private RenderTexture bufOutput;
 	void LoadModel() {
@@ -49,6 +51,7 @@ public class GPTGenerator : MonoBehaviour
 		matDynOutputOff = new Material[materials.Length];
 		matDynRotaryOff = new Material[materials.Length];
 		matGumbel = null;
+		matSample = null;
 		var matDynRangeMaskLength = 0;
 		var matDynOutputOffLength = 0;
 		var matDynRotaryOffLength = 0;
@@ -62,6 +65,8 @@ public class GPTGenerator : MonoBehaviour
 				matDynRotaryOff[matDynRotaryOffLength++] = mat;
 			if(mat.shaderKeywords.Length >= 1 && mat.shaderKeywords[0] == "FUNC_GUMBEL")
 				matGumbel = mat;
+			if(mat.shaderKeywords.Length >= 1 && mat.shaderKeywords[0] == "REDUCE_MINMAX")
+				matSample = mat;
 		}
 		matDynRangeMask = Take(matDynRangeMask, matDynRangeMaskLength);
 		matDynOutputOff = Take(matDynOutputOff, matDynOutputOffLength);
@@ -81,9 +86,11 @@ public class GPTGenerator : MonoBehaviour
 			Graphics.Blit(null, bufOutput, matOutput, 0);
 		}
 
+		var deltaRangeMaskSample = new Vector4(0, 0, 0, -vocabSkipLast);
 		var deltaRangeMask = new Vector4(0, 0, inputIndex-1, inputIndex-1);
 		var deltaOutputOff = new Vector4(inputIndex-1, 0, 0, 0);
 		var deltaRotaryOff = deltaOutputOff;
+		matSample.SetVector("_RangeMask", matSample.GetVector("_RangeMask") + deltaRangeMaskSample);
 		foreach(var mat in matDynRangeMask)
 			mat.SetVector("_RangeMask", mat.GetVector("_RangeMask") + deltaRangeMask);
 		foreach(var mat in matDynOutputOff)
@@ -102,6 +109,7 @@ public class GPTGenerator : MonoBehaviour
 		foreach(var mat in materials)
 			Graphics.Blit(null, (RenderTexture)mat.GetTexture("_OutputTex"), mat, 0);
 
+		matSample.SetVector("_RangeMask", matSample.GetVector("_RangeMask") - deltaRangeMaskSample);
 		foreach(var mat in matDynRangeMask)
 			mat.SetVector("_RangeMask", mat.GetVector("_RangeMask") - deltaRangeMask);
 		foreach(var mat in matDynOutputOff)
