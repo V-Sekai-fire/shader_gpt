@@ -5,7 +5,7 @@ import re
 import json
 import torch
 import numpy as np
-import imageio.v3 as iio
+import cv2
 from pathlib import Path
 from transformers import GPT2LMHeadModel, GPTNeoForCausalLM, GPTNeoXForCausalLM
 
@@ -88,14 +88,17 @@ def export_lm(model, folder, force_write=False):
 		else:
 			raise KeyError(f"unexpected {name} : {data.shape}")
 
-		# continue
 		data = data[::-1]
-		if data.dtype == np.ubyte:
-			if force_write or not (folder/f"{name}.png").exists():
-				iio.imwrite(folder/f"{name}.png", data)
-		else:
+		data = data[..., [2,1,0,3]] # RGBA to BGRA
+		if data.dtype == np.float16 or data.dtype == np.float32:
 			if force_write or not (folder/f"{name}.exr").exists():
-				iio.imwrite(folder/f"{name}.exr", data)
+				cv2.imwrite(str(folder/f"{name}.exr"), data.astype(np.float32),
+					(cv2.IMWRITE_EXR_TYPE, cv2.IMWRITE_EXR_TYPE_HALF if data.dtype == np.float16 else cv2.IMWRITE_EXR_TYPE_FLOAT))
+		elif data.dtype == np.ubyte:
+			if force_write or not (folder/f"{name}.png").exists():
+				cv2.imwrite(str(folder/f"{name}.png"), data)
+		else:
+			raise NotImplementedError(f"{data.dtype=}")
 
 def export_tokenizer(tokenizer, folder):
 	byte_decoder = None
@@ -155,6 +158,7 @@ def main():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('model', help='model id or path. for example: roneneldan/TinyStories-1M')
 	parser.add_argument('folder', help='save path. for example: ../Model/')
+	parser.add_argument('--force', action='store_true')
 	args = parser.parse_args()
 
 	folder = Path(args.folder)
@@ -163,9 +167,9 @@ def main():
 	print(f"import model from {args.model} to {folder}")
 	model = AutoModelForCausalLM.from_pretrained(args.model)
 	tokenizer = AutoTokenizer.from_pretrained(args.model)
-	export_lm(model, folder)
+	export_lm(model, folder, force_write=bool(args.force))
 	export_tokenizer(tokenizer, folder)
-	export_testcase(model, tokenizer, folder)
+	export_testcase(model, tokenizer, folder, force_write=bool(args.force))
 
 if __name__ == '__main__':
 	main()
