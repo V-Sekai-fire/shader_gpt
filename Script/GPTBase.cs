@@ -16,9 +16,9 @@ public abstract class GPTBase : MonoBehaviour {
 	public TextAsset testcaseJson;
 
 	[Header("Generation")]
-	public int maxLength = 1024;
+	public int maxLength = 2048;
 	public float temperature = 0;
-	public float interval = 1f;
+	public float interval = 0.1f;
 
 	public enum Task {
 		Run = 0,
@@ -60,7 +60,10 @@ public abstract class GPTBase : MonoBehaviour {
 			var text = "";
 			for(int i=0; i<tokens.Count; i++)
 				text += tokenizer.vocab[tokens[i]];
-			outputText.text = text;
+			if(outputText)
+				outputText.text = text;
+			else
+				Debug.Log(text);
 		} else if(task == Task.Test) {
 			Test(testcase);
 			Debug.Assert(ctx.TensorCount() == 0);
@@ -91,7 +94,10 @@ public abstract class GPTBase : MonoBehaviour {
 			Debug.Assert(ctx.TensorCount() == 0);
 			positionId = tokens.Count;
 			tokens.Add(token);
-			outputText.text += tokenizer.vocab[token];
+			if(outputText)
+				outputText.text += tokenizer.vocab[token];
+			else
+				Debug.Log(tokenizer.vocab[token]);
 		}
 	}
 	public abstract int Run(int positionId);

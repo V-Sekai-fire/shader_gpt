@@ -17,13 +17,11 @@ The following models are tested:
 
 ## Import a model
 
-You need Python to import a model. The importer script is `Python/import.py`.
+You need Python to convert models from Huggingface. [Install Python](https://www.python.org/downloads/) and run `pip install -r requirements.txt` in `Python` folder to install dependencies.
 
-For example, if you want to import TinyStories-33M, run `import.py roneneldan/TinyStories-33M ../Model/`. It will generates a folder `Model/TinyStories-33M` with EXR images which encode the model weights.
+The conversion script is `convert.py` in `Python` folder. For example, if you want to use TinyStories-33M, run `convert.py roneneldan/TinyStories-33M ../Model/`. The script will generate a folder `Model/TinyStories-33M` which contains JSON configurations and EXR images for model parameters.
 
-The images are not correctly imported in Unity by default. Select them in editor and click "ImportAsTensor" in the context menu of texture importer inspector.
-
-Please refer to the example scene to set up a MonoBehaviour for testing.
+In Unity editor, select the generated folder, and click "Assets/ImportGPTModel" in the menu. The editor script will reimport the textures and create a MonoBehaviour for running and testing the model. Please refer to the example scene to learn how to set it up.
 
 ## Example scene
 

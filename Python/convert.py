@@ -164,7 +164,7 @@ def main():
 	folder = Path(args.folder)
 	if re.search(r"[/\\]$", args.folder):
 		folder /= Path(args.model).name
-	print(f"import model from {args.model} to {folder}")
+	print(f"convert: {args.model} => {folder}")
 	model = AutoModelForCausalLM.from_pretrained(args.model)
 	tokenizer = AutoTokenizer.from_pretrained(args.model)
 	export_lm(model, folder, force_write=bool(args.force))
