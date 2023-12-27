@@ -8,12 +8,14 @@ The following architectures are implemented:
 * [GPT2](https://huggingface.co/docs/transformers/main/en/model_doc/gpt2)
 * [GPT-Neo](https://huggingface.co/docs/transformers/main/en/model_doc/gpt_neo)
 * [GPT-NeoX](https://huggingface.co/docs/transformers/main/en/model_doc/gpt_neox)
+* [Phi](https://huggingface.co/docs/transformers/main/en/model_doc/phi) (experimental)
 
 The following models are tested:
 * [TinyStories-33M](https://huggingface.co/roneneldan/TinyStories-33M) (GPT-Neo)
 * [gpt-neo-125M](https://huggingface.co/EleutherAI/gpt-neo-125M) (GPT-Neo)
 * [pythia-160m](https://huggingface.co/EleutherAI/pythia-160m) (GPT-NeoX)
 * [LaMini-GPT-124M](https://huggingface.co/MBZUAI/LaMini-GPT-124M) (GPT2)
+* [phi-1_5](https://huggingface.co/microsoft/phi-1_5) (Phi)
 
 ## Import a model
 

@@ -46,7 +46,7 @@ public class GPTTokenizer : MonoBehaviour
 			LoadTokenizer();
 	}
 
-	public int decodeState;
+	[System.NonSerialized] public int decodeState;
 	public string Decode(int token) {
 		if(token < 0 || token >= vocab.Length)
 			return string.Format("<error:{0}>", token);

@@ -22,12 +22,14 @@ public class ModelImporter {
 		Debug.Log(arch);
 
 		var type = default(System.Type);
-		if(arch == "GPTNeoForCausalLM")
+		if(arch == "GPT2LMHeadModel")
+			type = typeof(GPT2);
+		else if(arch == "GPTNeoForCausalLM")
 			type = typeof(GPTNeo);
 		else if(arch == "GPTNeoXForCausalLM")
 			type = typeof(GPTNeoX);
-		else if(arch == "GPT2LMHeadModel")
-			type = typeof(GPT2);
+		else if(arch == "PhiForCausalLM")
+			type = typeof(Phi);
 		else {
 			Debug.LogError($"unsupported architecture {arch}");
 			return null;

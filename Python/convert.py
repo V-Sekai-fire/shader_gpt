@@ -74,6 +74,32 @@ def export_lm(model, folder, force_write=False):
 			else:
 				continue
 			del state_dict[name]
+	elif type(model).__name__ == "PhiForCausalLM":
+		for name, data in list(state_dict.items()):
+			if name in ["transformer.embd.wte.weight", "lm_head.linear.weight"]:
+				state_dict[f"{name}.T"] = data.T
+			elif m := re.fullmatch(r"transformer[.]h[.](\d+)[.]mixer([.]Wqkv[.](weight|bias))", name):
+				prefix = name[:-len(m[2])]
+				mixer = model.transformer.h[int(m[1])].mixer
+				norm_factor = mixer.inner_cross_attn.softmax_scale or 1.0 / math.sqrt(mixer.head_dim)
+				data = data.view(3, -1)
+				if m[3] == "weight":
+					state_dict[f"{prefix}.Wq.weight"] = data[0].reshape(model.config.n_embd, -1)
+					state_dict[f"{prefix}.Wk.weight"] = data[1].reshape(model.config.n_embd, -1) * norm_factor
+					state_dict[f"{prefix}.Wv.weight"] = data[2].reshape(model.config.n_embd, -1)
+				else:
+					state_dict[f"{prefix}.Wq.bias"] = data[0].reshape(model.config.n_embd)
+					state_dict[f"{prefix}.Wk.bias"] = data[1].reshape(model.config.n_embd) * norm_factor
+					state_dict[f"{prefix}.Wv.bias"] = data[2].reshape(model.config.n_embd)
+
+				rotary_emb = mixer.rotary_emb
+				weight = torch.cat((
+					rotary_emb._cos_cached[..., :mixer.rotary_dim//2],
+					rotary_emb._sin_cached[..., :mixer.rotary_dim//2]), dim=-1)
+				state_dict[f"{prefix}.rotary_emb.weight"] = weight[..., :, :]
+			else:
+				continue
+			del state_dict[name]
 	else:
 		raise NotImplementedError(f"{type(model)=}")
 
@@ -130,6 +156,7 @@ def export_tokenizer(tokenizer, folder):
 	with open(folder/"tokenizer.json", "w", encoding="utf-8") as f:
 		f.write(output)
 
+@torch.no_grad()
 def export_testcase(model, tokenizer, folder, force_write=False):
 	if not force_write and (folder/"testcase.json").exists():
 		return
@@ -140,8 +167,15 @@ def export_testcase(model, tokenizer, folder, force_write=False):
 		"researchers was the fact that the unicorns spoke perfect English."
 	)
 	input_ids = tokenizer(prompt, return_tensors="pt").input_ids.cpu()
-	position_ids = torch.ones_like(input_ids, device=input_ids.device).long().cumsum(-1) - 1
-	outputs = model(input_ids=input_ids, position_ids=position_ids, output_hidden_states=True, return_dict=True)
+	if type(model).__name__ == "PhiForCausalLM":
+		attention_mask = torch.ones_like(input_ids, device=input_ids.device).long()
+		hidden_states = model.transformer(**model.prepare_inputs_for_generation(input_ids, None, attention_mask))
+		lm_logits = model.lm_head(hidden_states)
+		from transformers.modeling_outputs import CausalLMOutputWithPast
+		outputs = CausalLMOutputWithPast(logits=lm_logits, hidden_states=[hidden_states])
+	else:
+		position_ids = torch.ones_like(input_ids, device=input_ids.device).long().cumsum(-1) - 1
+		outputs = model(input_ids=input_ids, position_ids=position_ids, output_hidden_states=True, return_dict=True)
 
 	os.makedirs(folder, exist_ok=True)
 	print(folder/"testcase.json")
@@ -165,7 +199,7 @@ def main():
 	if re.search(r"[/\\]$", args.folder):
 		folder /= Path(args.model).name
 	print(f"convert: {args.model} => {folder}")
-	model = AutoModelForCausalLM.from_pretrained(args.model)
+	model = AutoModelForCausalLM.from_pretrained(args.model, trust_remote_code=True)
 	tokenizer = AutoTokenizer.from_pretrained(args.model)
 	export_lm(model, folder, force_write=bool(args.force))
 	export_tokenizer(tokenizer, folder)
