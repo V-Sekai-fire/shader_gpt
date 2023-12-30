@@ -28,6 +28,21 @@ float4 gelu_new(float4 x) {
 	return x * (x > 0 ? t : 1.0-t);
 }
 
+float4 dequantizeWeight(float4 x) {
+#ifdef QUANTIZE_WEIGHT
+	return x - (x > 0.5 ? 1 : 0);
+#else
+	return x;
+#endif
+}
+float4 dequantizeScale(float4 x) {
+#ifdef QUANTIZE_WEIGHT
+	return exp2(round(x*255 - (x > 0.5 ? 256 : 0)) / 2);
+#else
+	return 1;
+#endif
+}
+
 void vertQuad(float2 uv : TEXCOORD0, out float4 vertex : SV_Position) {
 	vertex = float4(uv*2-1, UNITY_NEAR_CLIP_VALUE, 1);
 }

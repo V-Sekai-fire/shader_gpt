@@ -7,6 +7,7 @@ namespace ShaderGPT {
 public class TensorNN {
 	public TensorContext ctx;
 	public Dictionary<string, Shader> kernels;
+	public Dictionary<Texture, Texture> quants = new Dictionary<Texture, Texture>();
 	public VertexAttributeFormat dataType = VertexAttributeFormat.Float32;
 	public int linearMipmap = 2;
 
@@ -20,6 +21,12 @@ public class TensorNN {
 			SetTensor(mat, "_Weight2", weight2);
 		if(transposeWeight)
 			EnableOption(mat, Keyword.TRANSPOSE_WEIGHT);
+		if(quants.TryGetValue(weight, out var quant)) {
+			EnableOption(mat, Keyword.QUANTIZE_WEIGHT);
+			SetTensor(mat, "_Scale", quant);
+			if(weight2)
+				SetTensor(mat, "_Scale2", quants[weight2]);
+		}
 		ctx.Blit(output, mat);
 		return output;
 	}
@@ -34,6 +41,10 @@ public class TensorNN {
 		mat.SetInt("_Head", head);
 		if(transposeWeight)
 			EnableOption(mat, Keyword.TRANSPOSE_WEIGHT);
+		if(quants.TryGetValue(weight, out var quant)) {
+			EnableOption(mat, Keyword.QUANTIZE_WEIGHT);
+			SetTensor(mat, "_Scale", quant);
+		}
 		ctx.Blit(output, mat);
 		return output;
 	}
@@ -159,6 +170,7 @@ public class TensorNN {
 	public enum Keyword {
 		None = 0,
 		TRANSPOSE_WEIGHT,
+		QUANTIZE_WEIGHT,
 		REDUCE_MOMENT,
 		REDUCE_MINMAX,
 		FUNC_GROUPNORM,

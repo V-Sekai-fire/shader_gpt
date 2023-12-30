@@ -1,6 +1,7 @@
 import os
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
+import math
 import re
 import json
 import torch
@@ -9,14 +10,42 @@ import cv2
 from pathlib import Path
 from transformers import GPT2LMHeadModel, GPTNeoForCausalLM, GPTNeoXForCausalLM
 
-def export_lm(model, folder, force_write=False):
+def imwrite(path, data):
+	data = data[..., [2,1,0,3]] # RGBA to BGRA
+	if data.dtype == np.float16 or data.dtype == np.float32:
+		cv2.imwrite(str(path), data.astype(np.float32), (
+			cv2.IMWRITE_EXR_TYPE,
+			cv2.IMWRITE_EXR_TYPE_HALF if data.dtype == np.float16 else cv2.IMWRITE_EXR_TYPE_FLOAT,
+			cv2.IMWRITE_EXR_COMPRESSION,
+			cv2.IMWRITE_EXR_COMPRESSION_PIZ)) # https://aras-p.info/blog/2021/08/04/EXR-Lossless-Compression/
+	elif data.dtype == np.ubyte:
+		cv2.imwrite(str(path), data)
+
+def quantize_int8(data, axis, clip=127/255, estep=1/2):
+	if axis == 0:
+		data = data.reshape(data.shape[0]//4, 4, *data.shape[1:])
+		amax = np.amax(np.abs(data), axis=1, keepdims=True)
+	else:
+		amax = np.amax(np.abs(data), axis=-1, keepdims=True)
+	expo = np.clip(np.ceil(np.log2(amax/clip)/estep), -127, 127)
+	data = np.clip(data * np.exp2(-expo*estep), -clip, +clip)
+	data = np.where(data < 0, 1+data, data)
+	if axis == 0:
+		data = data.reshape(-1, *data.shape[2:])
+		expo = expo[:, 0]
+	else:
+		expo = expo.reshape(expo.shape[0]//4, 4, expo.shape[1]).transpose(0,2,1)
+	return data, expo.astype(np.int8).astype(np.uint8)
+
+def export_lm(model, folder, force_write=False, quantize=None):
 	os.makedirs(folder, exist_ok=True)
 	print(folder/"config.json")
 	with open(folder/"config.json", "w") as f:
 		json.dump(model.config.to_dict(), f, indent=2, sort_keys=True)
 
+	model_type = model.config.model_type
 	state_dict = dict(model.state_dict())
-	if isinstance(model, GPTNeoForCausalLM):
+	if model_type == "gpt_neo":
 		for name, data in list(state_dict.items()):
 			if name in ["transformer.wte.weight", "transformer.wpe.weight"]:
 				state_dict[f"{name}.T"] = data.T
@@ -25,7 +54,7 @@ def export_lm(model, folder, force_write=False):
 			else:
 				continue
 			del state_dict[name]
-	elif isinstance(model, GPT2LMHeadModel):
+	elif model_type == "gpt2":
 		for name, data in list(state_dict.items()):
 			if name in ["transformer.wte.weight", "transformer.wpe.weight"]:
 				state_dict[f"{name}.T"] = data.T
@@ -48,7 +77,7 @@ def export_lm(model, folder, force_write=False):
 					state_dict[name] = data.transpose(0,1)
 				continue
 			del state_dict[name]
-	elif isinstance(model, GPTNeoXForCausalLM):
+	elif model_type == "gpt_neox":
 		for name, data in list(state_dict.items()):
 			if name in ["gpt_neox.embed_in.weight", "embed_out.weight"]:
 				state_dict[f"{name}.T"] = data.T
@@ -74,7 +103,7 @@ def export_lm(model, folder, force_write=False):
 			else:
 				continue
 			del state_dict[name]
-	elif type(model).__name__ == "PhiForCausalLM":
+	elif model_type == "phi-msft":
 		for name, data in list(state_dict.items()):
 			if name in ["transformer.embd.wte.weight", "lm_head.linear.weight"]:
 				state_dict[f"{name}.T"] = data.T
@@ -101,7 +130,7 @@ def export_lm(model, folder, force_write=False):
 				continue
 			del state_dict[name]
 	else:
-		raise NotImplementedError(f"{type(model)=}")
+		raise NotImplementedError(f"{model_type=}")
 
 	for name, data in state_dict.items():
 		data = data.numpy()
@@ -114,17 +143,28 @@ def export_lm(model, folder, force_write=False):
 		else:
 			raise KeyError(f"unexpected {name} : {data.shape}")
 
-		data = data[::-1]
-		data = data[..., [2,1,0,3]] # RGBA to BGRA
-		if data.dtype == np.float16 or data.dtype == np.float32:
-			if force_write or not (folder/f"{name}.exr").exists():
-				cv2.imwrite(str(folder/f"{name}.exr"), data.astype(np.float32),
-					(cv2.IMWRITE_EXR_TYPE, cv2.IMWRITE_EXR_TYPE_HALF if data.dtype == np.float16 else cv2.IMWRITE_EXR_TYPE_FLOAT))
-		elif data.dtype == np.ubyte:
-			if force_write or not (folder/f"{name}.png").exists():
-				cv2.imwrite(str(folder/f"{name}.png"), data)
+		quantizable = data.shape[0] % 4 == 0 and bool(re.search(r"(?<!rotary_emb)\.weight(\.T)?$", name))
+		if data.dtype == np.uint8:
+			if not force_write and (folder/f"{name}.png").exists():
+				continue
+
+			imwrite(folder/f"{name}.png", data[::-1])
+		elif quantizable and quantize is not None and quantize(name, data.shape):
+			if not force_write and (folder/f"{name}.exr").exists() and (folder/f"{name}.q8.png").exists():
+				continue
+			(folder/f"{name}.exr").unlink(missing_ok=True)
+			(folder/f"{name}.q8.png").unlink(missing_ok=True)
+
+			data, expo = quantize_int8(data, axis=2)
+			imwrite(folder/f"{name}.exr", data[::-1])
+			imwrite(folder/f"{name}.q8.png", expo[::-1])
 		else:
-			raise NotImplementedError(f"{data.dtype=}")
+			if not force_write and (folder/f"{name}.exr").exists() and not (folder/f"{name}.q8.png").exists():
+				continue
+			(folder/f"{name}.exr").unlink(missing_ok=True)
+			(folder/f"{name}.q8.png").unlink(missing_ok=True)
+
+			imwrite(folder/f"{name}.exr", data[::-1])
 
 def export_tokenizer(tokenizer, folder):
 	byte_decoder = None
@@ -167,7 +207,7 @@ def export_testcase(model, tokenizer, folder, force_write=False):
 		"researchers was the fact that the unicorns spoke perfect English."
 	)
 	input_ids = tokenizer(prompt, return_tensors="pt").input_ids.cpu()
-	if type(model).__name__ == "PhiForCausalLM":
+	if model.config.model_type == "phi-msft":
 		attention_mask = torch.ones_like(input_ids, device=input_ids.device).long()
 		hidden_states = model.transformer(**model.prepare_inputs_for_generation(input_ids, None, attention_mask))
 		lm_logits = model.lm_head(hidden_states)
@@ -193,6 +233,7 @@ def main():
 	parser.add_argument('model', help='model id or path. for example: roneneldan/TinyStories-1M')
 	parser.add_argument('folder', help='save path. for example: ../Model/')
 	parser.add_argument('--force', action='store_true')
+	parser.add_argument('--quantize', type=float)
 	args = parser.parse_args()
 
 	folder = Path(args.folder)
@@ -201,7 +242,8 @@ def main():
 	print(f"convert: {args.model} => {folder}")
 	model = AutoModelForCausalLM.from_pretrained(args.model, trust_remote_code=True)
 	tokenizer = AutoTokenizer.from_pretrained(args.model)
-	export_lm(model, folder, force_write=bool(args.force))
+	quantize = (lambda name, shape: np.prod(shape) >= args.quantize*1024*1024) if args.quantize else None
+	export_lm(model, folder, force_write=bool(args.force), quantize=quantize)
 	export_tokenizer(tokenizer, folder)
 	export_testcase(model, tokenizer, folder, force_write=bool(args.force))
 

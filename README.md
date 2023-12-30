@@ -23,7 +23,7 @@ You need Python to convert models from Huggingface. [Install Python](https://www
 
 The conversion script is `convert.py` in `Python` folder. For example, if you want to use TinyStories-33M, run `convert.py roneneldan/TinyStories-33M ../Model/`. The script will generate a folder `Model/TinyStories-33M` which contains JSON configurations and EXR images for model parameters.
 
-In Unity editor, select the generated folder, and click "Assets/ImportGPTModel" in the menu. The editor script will reimport the textures and create a MonoBehaviour for running and testing the model. Please refer to the example scene to learn how to set it up.
+In Unity editor, select the generated folder, and click "Assets/ShaderGPT/ImportModel" in the menu. The editor script will reimport the textures and create a MonoBehaviour for running and testing the model. Please refer to the example scene to learn how to set it up.
 
 ## Example scene
 

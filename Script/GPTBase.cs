@@ -49,6 +49,9 @@ public abstract class GPTBase : MonoBehaviour {
 		};
 		tokenizer = JsonUtility.FromJson<Tokenizer>(tokenizerJson.text);
 		parameters = textures.ToDictionary(x => x.name, x => x);
+		foreach(var pair in parameters)
+			if(parameters.TryGetValue(pair.Key+".q8", out var quantTex))
+				nn.quants[pair.Value] = quantTex;
 		var testcase = testcaseJson ? JsonUtility.FromJson<Testcase>(testcaseJson.text) : null;
 
 		if(task == Task.Run) {
