@@ -15,6 +15,8 @@ public class GPTPipeline : MonoBehaviour
 	public UnityEngine.UI.Text outputText;
 	public UnityEngine.UI.Slider temperatureSlider;
 
+	public bool ignoreEosToken;
+
 	private bool eos;
 	public void OnEnable() {
 #if UDON
@@ -42,7 +44,7 @@ public class GPTPipeline : MonoBehaviour
 		if(!generator)
 			return;
 		var token = generator.outputToken;
-		if(token == tokenizer.eos_token_id) {
+		if(token == tokenizer.eos_token_id && !ignoreEosToken) {
 			eos = true;
 			generator.enabled = false;
 			return;

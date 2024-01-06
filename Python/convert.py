@@ -21,21 +21,28 @@ def imwrite(path, data):
 	elif data.dtype == np.ubyte:
 		cv2.imwrite(str(path), data)
 
-def quantize_int8(data, axis, clip=127/255, estep=1/2):
-	if axis == 0:
-		data = data.reshape(data.shape[0]//4, 4, *data.shape[1:])
-		amax = np.amax(np.abs(data), axis=1, keepdims=True)
-	else:
-		amax = np.amax(np.abs(data), axis=-1, keepdims=True)
-	expo = np.clip(np.ceil(np.log2(amax/clip)/estep), -127, 127)
-	data = np.clip(data * np.exp2(-expo*estep), -clip, +clip)
-	data = np.where(data < 0, 1+data, data)
-	if axis == 0:
-		data = data.reshape(-1, *data.shape[2:])
-		expo = expo[:, 0]
-	else:
-		expo = expo.reshape(expo.shape[0]//4, 4, expo.shape[1]).transpose(0,2,1)
-	return data, expo.astype(np.int8).astype(np.uint8)
+def pad_align(data, align):
+	return np.pad(data, [(0,(-n)%m) for n, m in zip(data.shape, align)])
+
+def quantize_unorm8(data, asym=True, bits=8, group=4, *, dstep=256, estep=2):
+	presets = [(-127, +127, 0)] + ([(-63, +191, +85), (-191, +63, -85)] if asym else [])
+	bmin, bmax, eoff = np.array(presets, dtype=data.dtype).T[..., None, None, None]
+	gdata = pad_align(data.reshape(data.shape[0], -1), [1, group]).reshape(data.shape[0], -1, group)
+
+	dmin = np.minimum(0, np.amin(gdata, axis=-1, keepdims=True))
+	dmax = np.maximum(0, np.amax(gdata, axis=-1, keepdims=True))
+	expo = np.clip(np.ceil(np.log2(np.maximum(dmin/(bmin/dstep), dmax/(bmax/dstep)))*estep), -42, 42)
+	scale = 255/dstep * np.exp2(expo/estep)
+	mant = np.clip(gdata/scale, bmin/255, bmax/255).astype(gdata.dtype)
+	qerr = np.amax(np.abs(np.round(mant*(2**bits-1))/(2**bits-1) * scale - gdata), axis=-1, keepdims=True)
+	best = np.argmin(qerr, axis=0, keepdims=True)
+	expo = np.take_along_axis(expo+eoff, best, axis=0)[0]
+	mant = np.take_along_axis(mant, best, axis=0)[0]
+
+	mant = np.where(mant < -1/512, 1+mant, mant) # keep tiny float
+	mant = mant.reshape(mant.shape[0], -1, data.shape[2])[:, :data.shape[1]]
+	expo = pad_align(expo, [4, 1, 1]).reshape(-1, 4, expo.shape[1]).transpose(0,2,1)
+	return mant, expo.astype(np.int8).astype(np.uint8)
 
 def export_lm(model, folder, force_write=False, quantize=None):
 	os.makedirs(folder, exist_ok=True)
@@ -133,13 +140,12 @@ def export_lm(model, folder, force_write=False, quantize=None):
 		raise NotImplementedError(f"{model_type=}")
 
 	for name, data in state_dict.items():
-		data = data.numpy()
+		data = data.cpu().numpy()
 		print("\t", name, data.shape)
 		if re.search(r"\.weight(\.T)?$", name) and len(data.shape) == 2:
-			data = np.pad(data, [(0,0), (0,(-data.shape[1])&3)])
-			data = data.reshape(data.shape[0], data.shape[1]//4, 4)
+			data = pad_align(data, [1, 4]).reshape(data.shape[0], -1, 4)
 		elif re.search(r"\.(weight|bias)$", name) and len(data.shape) == 1:
-			data = data.reshape(1, data.shape[0]//4, 4)
+			data = data.reshape(1, -1, 4)
 		else:
 			raise KeyError(f"unexpected {name} : {data.shape}")
 
@@ -155,7 +161,7 @@ def export_lm(model, folder, force_write=False, quantize=None):
 			(folder/f"{name}.exr").unlink(missing_ok=True)
 			(folder/f"{name}.q8.png").unlink(missing_ok=True)
 
-			data, expo = quantize_int8(data, axis=2)
+			data, expo = quantize_unorm8(data)
 			imwrite(folder/f"{name}.exr", data[::-1])
 			imwrite(folder/f"{name}.q8.png", expo[::-1])
 		else:
@@ -206,7 +212,7 @@ def export_testcase(model, tokenizer, folder, force_write=False):
 		"previously unexplored valley, in the Andes Mountains. Even more surprising to the "
 		"researchers was the fact that the unicorns spoke perfect English."
 	)
-	input_ids = tokenizer(prompt, return_tensors="pt").input_ids.cpu()
+	input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
 	if model.config.model_type == "phi-msft":
 		attention_mask = torch.ones_like(input_ids, device=input_ids.device).long()
 		hidden_states = model.transformer(**model.prepare_inputs_for_generation(input_ids, None, attention_mask))

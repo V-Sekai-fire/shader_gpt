@@ -11,22 +11,27 @@ public class TensorNN {
 	public VertexAttributeFormat dataType = VertexAttributeFormat.Float32;
 	public int linearMipmap = 2;
 
-	public Texture Embedding(Texture input, Texture weight, Texture weight2=null, bool transposeWeight=false) {
-		var output = ctx.GPUTensor(ctx.Size0(input), transposeWeight ? ctx.Size0(weight)/4 : ctx.Size1(weight), dtype:dataType);
+	public Texture Embedding(Texture input, Texture weight0, Texture weight1=null, bool transposeWeight=false) {
+		var output = ctx.GPUTensor(ctx.Size0(input), transposeWeight ? ctx.Size0(weight0??weight1)/4 : ctx.Size1(weight0??weight1), dtype:dataType);
 		var mat = ctx.Operator(kernels["Embedding"]);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
-		SetTensor(mat, "_Weight", weight);
-		if(weight2)
-			SetTensor(mat, "_Weight2", weight2);
+		if(weight0) {
+			SetTensor(mat, "_Weight0", weight0);
+			if(quants.TryGetValue(weight0, out var quant0)) {
+				SetTensor(mat, "_Scale0", quant0);
+				EnableOption(mat, Keyword.QUANTIZE_WEIGHT);
+			}
+		}
+		if(weight1) {
+			SetTensor(mat, "_Weight1", weight1);
+			if(quants.TryGetValue(weight1, out var quant1)) {
+				SetTensor(mat, "_Scale1", quant1);
+				EnableOption(mat, Keyword.QUANTIZE_WEIGHT);
+			}
+		}
 		if(transposeWeight)
 			EnableOption(mat, Keyword.TRANSPOSE_WEIGHT);
-		if(quants.TryGetValue(weight, out var quant)) {
-			EnableOption(mat, Keyword.QUANTIZE_WEIGHT);
-			SetTensor(mat, "_Scale", quant);
-			if(weight2)
-				SetTensor(mat, "_Scale2", quants[weight2]);
-		}
 		ctx.Blit(output, mat);
 		return output;
 	}
@@ -125,13 +130,13 @@ public class TensorNN {
 		ctx.Blit(output, mat);
 		return output;
 	}
-	public Texture Rotary(Texture input, Texture rotary, Vector2Int rotaryOffset=default, int group=1) {
+	public Texture Rotary(Texture input, Texture rotary, int group=1) {
 		var output = ctx.GPUTensor(ctx.Size0(input), ctx.Size1(input), dtype:dataType);
 		var mat = ctx.Operator(kernels["Function"]);
 		EnableOption(mat, Keyword.FUNC_ROTARY);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
-		SetTensor(mat, "_Rotary", rotary, rotaryOffset, ctx.Size(rotary));
+		SetTensor(mat, "_Rotary", rotary);
 		mat.SetVector("_ReduceDim", new Vector2(ctx.Size0(input), group));
 		ctx.Blit(output, mat);
 		return output;

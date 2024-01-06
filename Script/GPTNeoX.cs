@@ -50,7 +50,7 @@ public class GPTNeoX : GPTBase {
 		ctx.Release(next_tokens);
 	}
 
-	void GPTNeoXAttention(ref Texture hidden_states, string path, int position_id) {
+	void GPTNeoXAttention(ref Texture hidden_states, string path, int position_id, Texture input_ids) {
 		var query = nn.Linear(hidden_states, parameters[$"{path}.query.weight"]);
 		var key   = nn.Linear(hidden_states, parameters[$"{path}.key.weight"]);
 		var value = nn.Linear(hidden_states, parameters[$"{path}.value.weight"]);
@@ -58,8 +58,11 @@ public class GPTNeoX : GPTBase {
 		query = BatchRelease(nn.AddAct(MarkRelease(query), parameters[$"{path}.query.bias"]));
 		key   = BatchRelease(nn.AddAct(MarkRelease(key),   parameters[$"{path}.key.bias"]));
 		value = BatchRelease(nn.AddAct(MarkRelease(value), parameters[$"{path}.value.bias"]));
-		query = BatchRelease(nn.Rotary(MarkRelease(query), parameters[$"{path}.rotary_emb.weight"], new Vector2Int(position_id, 0), group:config.num_attention_heads));
-		key   = BatchRelease(nn.Rotary(MarkRelease(key),   parameters[$"{path}.rotary_emb.weight"], new Vector2Int(position_id, 0), group:config.num_attention_heads));
+
+		var rotary = nn.Embedding(input_ids, null, parameters[$"{path}.rotary_emb.weight"]);
+		query = BatchRelease(nn.Rotary(MarkRelease(query), rotary, group:config.num_attention_heads));
+		key   = BatchRelease(nn.Rotary(MarkRelease(key),   rotary, group:config.num_attention_heads));
+		ctx.Release(rotary);
 
 		var keys   = ctx.PersistentGPUTensor($"{path}.k", maxLength, ctx.Size1(key), dtype:nn.dataType);
 		var values = ctx.PersistentGPUTensor($"{path}.v", maxLength, ctx.Size1(value), dtype:nn.dataType);
@@ -74,9 +77,9 @@ public class GPTNeoX : GPTBase {
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), parameters[$"{path}.dense.weight"]));
 		hidden_states = BatchRelease(nn.AddAct(MarkRelease(hidden_states), parameters[$"{path}.dense.bias"]));
 	}
-	void GPTNeoXLayer(ref Texture hidden_states, string path, int position_id) {
+	void GPTNeoXLayer(ref Texture hidden_states, string path, int position_id, Texture input_ids) {
 		var attn_output = nn.GroupNorm(hidden_states, parameters[$"{path}.input_layernorm.weight"], parameters[$"{path}.input_layernorm.bias"], config.layer_norm_eps);
-		GPTNeoXAttention(ref attn_output, path:$"{path}.attention", position_id:position_id);
+		GPTNeoXAttention(ref attn_output, path:$"{path}.attention", position_id:position_id, input_ids:input_ids);
 
 		var mlp_output = nn.GroupNorm(hidden_states, parameters[$"{path}.post_attention_layernorm.weight"], parameters[$"{path}.post_attention_layernorm.bias"], config.layer_norm_eps);
 		mlp_output = BatchRelease(nn.Linear(MarkRelease(mlp_output), parameters[$"{path}.mlp.dense_h_to_4h.weight"]));
@@ -90,7 +93,7 @@ public class GPTNeoX : GPTBase {
 	Texture GPTNeoXModel(Texture input_ids, string path, int position_id) {
 		var hidden_states = nn.Embedding(input_ids, parameters[$"{path}.embed_in.weight.T"], transposeWeight:true);
 		for(int i=0; i<config.num_hidden_layers; i++)
-			GPTNeoXLayer(ref hidden_states, path:$"{path}.layers.{i}", position_id:position_id);
+			GPTNeoXLayer(ref hidden_states, path:$"{path}.layers.{i}", position_id:position_id, input_ids:input_ids);
 		hidden_states = BatchRelease(nn.GroupNorm(MarkRelease(hidden_states), parameters[$"{path}.final_layer_norm.weight"], parameters[$"{path}.final_layer_norm.bias"], config.layer_norm_eps));
 		return hidden_states;
 	}

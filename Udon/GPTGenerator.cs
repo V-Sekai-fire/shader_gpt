@@ -16,7 +16,7 @@ public class GPTGenerator : MonoBehaviour
 	public GameObject modelPrefab;
 	public int maxLength = 2048;
 	public float temperature = 0;
-	public int vocabSkipLast = 0;
+	public int skipLastToken = 0;
 	public int frameStep = 1;
 #if UDON
 	public VRC.Udon.UdonBehaviour eventTarget;
@@ -28,7 +28,6 @@ public class GPTGenerator : MonoBehaviour
 	private Material[] materials;
 	private Material[] matDynRangeMask;
 	private Material[] matDynOutputOff;
-	private Material[] matDynRotaryOff;
 	private Material matGumbel;
 	private Material matSample;
 	private Material matOutput;
@@ -49,20 +48,16 @@ public class GPTGenerator : MonoBehaviour
 		bufOutput = (RenderTexture)matOutput.GetTexture("_OutputTex");
 		matDynRangeMask = new Material[materials.Length];
 		matDynOutputOff = new Material[materials.Length];
-		matDynRotaryOff = new Material[materials.Length];
 		matGumbel = null;
 		matSample = null;
 		var matDynRangeMaskLength = 0;
 		var matDynOutputOffLength = 0;
-		var matDynRotaryOffLength = 0;
 		foreach(var mat in materials) {
 			var rt = (RenderTexture)mat.GetTexture("_OutputTex");
 			if(mat.HasProperty("_RangeMask") && mat.GetVector("_RangeMask").x == 1)
 				matDynRangeMask[matDynRangeMaskLength++] = mat;
 			if(mat.HasProperty("_OutputOff") && rt.height == maxPosLength)
 				matDynOutputOff[matDynOutputOffLength++] = mat;
-			if(mat.shaderKeywords.Length >= 1 && mat.shaderKeywords[0] == "FUNC_ROTARY")
-				matDynRotaryOff[matDynRotaryOffLength++] = mat;
 			if(mat.shaderKeywords.Length >= 1 && mat.shaderKeywords[0] == "FUNC_GUMBEL")
 				matGumbel = mat;
 			if(mat.shaderKeywords.Length >= 1 && mat.shaderKeywords[0] == "REDUCE_MINMAX")
@@ -70,7 +65,6 @@ public class GPTGenerator : MonoBehaviour
 		}
 		matDynRangeMask = Take(matDynRangeMask, matDynRangeMaskLength);
 		matDynOutputOff = Take(matDynOutputOff, matDynOutputOffLength);
-		matDynRotaryOff = Take(matDynRotaryOff, matDynRotaryOffLength);
 	}
 
 	// you need to set inputIndex and inputTokens before enabling
@@ -86,17 +80,14 @@ public class GPTGenerator : MonoBehaviour
 			Graphics.Blit(null, bufOutput, matOutput, 0);
 		}
 
-		var deltaRangeMaskSample = new Vector4(0, 0, 0, -vocabSkipLast);
+		var deltaRangeMaskSample = new Vector4(0, 0, 0, -skipLastToken);
 		var deltaRangeMask = new Vector4(0, 0, inputIndex-1, inputIndex-1);
 		var deltaOutputOff = new Vector4(inputIndex-1, 0, 0, 0);
-		var deltaRotaryOff = deltaOutputOff;
 		matSample.SetVector("_RangeMask", matSample.GetVector("_RangeMask") + deltaRangeMaskSample);
 		foreach(var mat in matDynRangeMask)
 			mat.SetVector("_RangeMask", mat.GetVector("_RangeMask") + deltaRangeMask);
 		foreach(var mat in matDynOutputOff)
 			mat.SetVector("_OutputOff", mat.GetVector("_OutputOff") + deltaOutputOff);
-		foreach(var mat in matDynRotaryOff)
-			mat.SetVector("_RotaryOff", mat.GetVector("_RotaryOff") + deltaRotaryOff);
 
 		matGumbel.SetVector("_Weight", Vector4.one*temperature);
 		if(inputIndex < inputTokens.Length) {
@@ -114,8 +105,6 @@ public class GPTGenerator : MonoBehaviour
 			mat.SetVector("_RangeMask", mat.GetVector("_RangeMask") - deltaRangeMask);
 		foreach(var mat in matDynOutputOff)
 			mat.SetVector("_OutputOff", mat.GetVector("_OutputOff") - deltaOutputOff);
-		foreach(var mat in matDynRotaryOff)
-			mat.SetVector("_RotaryOff", mat.GetVector("_RotaryOff") - deltaRotaryOff);
 		inputIndex++;
 	}
 

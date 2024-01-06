@@ -14,7 +14,6 @@ Properties {
 	[NoScaleOffset] _RotaryTex("_RotaryTex", 2D) = "black" {}
 	_InputOff ("_InputOff",  Vector) = (0, 0, 0, 0)
 	_OutputOff("_OutputOff", Vector) = (0, 0, 0, 0)
-	_RotaryOff("_RotaryOff", Vector) = (0, 0, 0, 0)
 	_RangeMask("_RangeMask", Vector) = (0, 0, 0, 65536) // maxTextureSize*4
 	_Eps("_Eps", Float) = 0
 	_Weight("_Weight", Vector) = (1, 1, 1, 1)
@@ -34,7 +33,6 @@ Texture2D<float4> _BiasTex;   uint2 _BiasDim;
 Texture2D<float4> _RotaryTex; uint2 _RotaryDim;
 uniform uint2 _InputOff;
 uniform uint2 _OutputOff;
-uniform uint2 _RotaryOff;
 uniform int4  _RangeMask;
 uniform float _Eps;
 uniform float4 _Weight;
@@ -64,14 +62,14 @@ float4 main(uint2 pos) {
 		if(j < dim) {
 			float4 reX = X;
 			float4 imX = _InputTex.mips[_InputDim.w][uint2(_InputOff.xy+uint2(pos.x,pos.y+dim)).yx];
-			float4 reY = _RotaryTex[uint2(_RotaryOff+uint2(pos.x,j)).yx];
-			float4 imY = _RotaryTex[uint2(_RotaryOff+uint2(pos.x,j+dim)).yx];
+			float4 reY = _RotaryTex[uint2(pos.x,j).yx];
+			float4 imY = _RotaryTex[uint2(pos.x,j+dim).yx];
 			O = reX*reY - imX*imY; // real part
 		} else if(j < dim*2) {
 			float4 imX = X;
 			float4 reX = _InputTex.mips[_InputDim.w][uint2(_InputOff.xy+uint2(pos.x,pos.y-dim)).yx];
-			float4 imY = _RotaryTex[uint2(_RotaryOff+uint2(pos.x,j)).yx];
-			float4 reY = _RotaryTex[uint2(_RotaryOff+uint2(pos.x,j-dim)).yx];
+			float4 imY = _RotaryTex[uint2(pos.x,j).yx];
+			float4 reY = _RotaryTex[uint2(pos.x,j-dim).yx];
 			O = reX*imY + imX*reY; // imaginary part
 		}
 	#endif

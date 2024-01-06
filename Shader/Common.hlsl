@@ -28,19 +28,24 @@ float4 gelu_new(float4 x) {
 	return x * (x > 0 ? t : 1.0-t);
 }
 
-float4 dequantizeWeight(float4 x) {
+float4 dequantizeWeight(float4 x, float offset) {
 #ifdef QUANTIZE_WEIGHT
-	return x - (x > 0.5 ? 1 : 0);
+	return x - (x > offset ? 1 : 0);
 #else
 	return x;
 #endif
 }
-float4 dequantizeScale(float4 x) {
+float4 dequantizeScale(float4 x, out float4 offset, bool enabled=true, float dstep=256, float estep=2) {
 #ifdef QUANTIZE_WEIGHT
-	return exp2(round(x*255 - (x > 0.5 ? 256 : 0)) / 2);
-#else
-	return 1;
+	if(enabled) {
+		float4 byte = round(x*255 - (x > 0.5 ? 256 : 0));
+		float4 type = round(byte/85);
+		offset = type * 0.25 + 0.5;
+		return exp2((byte - type*85) / estep + log2(255/dstep));
+	}
 #endif
+	offset = asfloat(0x7f7fffff); // infinity-1
+	return 1;
 }
 
 void vertQuad(float2 uv : TEXCOORD0, out float4 vertex : SV_Position) {

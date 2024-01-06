@@ -50,7 +50,7 @@ public class Phi : GPTBase {
 		ctx.Release(next_tokens);
 	}
 
-	void MHA(ref Texture hidden_states, string path, int position_id) {
+	void MHA(ref Texture hidden_states, string path, int position_id, Texture input_ids) {
 		var query = nn.Linear(hidden_states, parameters[$"{path}.Wq.weight"]);
 		var key   = nn.Linear(hidden_states, parameters[$"{path}.Wk.weight"]);
 		var value = nn.Linear(hidden_states, parameters[$"{path}.Wv.weight"]);
@@ -58,8 +58,11 @@ public class Phi : GPTBase {
 		query = BatchRelease(nn.AddAct(MarkRelease(query), parameters[$"{path}.Wq.bias"]));
 		key   = BatchRelease(nn.AddAct(MarkRelease(key),   parameters[$"{path}.Wk.bias"]));
 		value = BatchRelease(nn.AddAct(MarkRelease(value), parameters[$"{path}.Wv.bias"]));
-		query = BatchRelease(nn.Rotary(MarkRelease(query), parameters[$"{path}.rotary_emb.weight"], new Vector2Int(position_id, 0), group:config.n_head));
-		key   = BatchRelease(nn.Rotary(MarkRelease(key),   parameters[$"{path}.rotary_emb.weight"], new Vector2Int(position_id, 0), group:config.n_head));
+
+		var rotary = nn.Embedding(input_ids, null, parameters[$"{path}.rotary_emb.weight"]);
+		query = BatchRelease(nn.Rotary(MarkRelease(query), rotary, group:config.n_head));
+		key   = BatchRelease(nn.Rotary(MarkRelease(key),   rotary, group:config.n_head));
+		ctx.Release(rotary);
 
 		var keys   = ctx.PersistentGPUTensor($"{path}.k", maxLength, ctx.Size1(key), dtype:nn.dataType);
 		var values = ctx.PersistentGPUTensor($"{path}.v", maxLength, ctx.Size1(value), dtype:nn.dataType);
@@ -74,7 +77,7 @@ public class Phi : GPTBase {
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), parameters[$"{path}.out_proj.weight"]));
 		hidden_states = BatchRelease(nn.AddAct(MarkRelease(hidden_states), parameters[$"{path}.out_proj.bias"]));
 	}
-	void ParallelBlock(ref Texture hidden_states, string path, int position_id) {
+	void ParallelBlock(ref Texture hidden_states, string path, int position_id, Texture input_ids) {
 		var residual = hidden_states;
 		hidden_states = nn.GroupNorm(hidden_states, parameters[$"{path}.ln.weight"], parameters[$"{path}.ln.bias"], config.layer_norm_epsilon);
 		var mlp_output = BatchRelease(nn.Linear(hidden_states, parameters[$"{path}.mlp.fc1.weight"]));
@@ -82,14 +85,14 @@ public class Phi : GPTBase {
 		mlp_output = BatchRelease(nn.Linear(MarkRelease(mlp_output), parameters[$"{path}.mlp.fc2.weight"]));
 		mlp_output = BatchRelease(nn.AddAct(MarkRelease(mlp_output), parameters[$"{path}.mlp.fc2.bias"]));
 
-		MHA(ref hidden_states, path:$"{path}.mixer", position_id:position_id);
+		MHA(ref hidden_states, path:$"{path}.mixer", position_id:position_id, input_ids:input_ids);
 		hidden_states = BatchRelease(nn.AddAct(MarkRelease(hidden_states), MarkRelease(mlp_output)));
 		hidden_states = BatchRelease(nn.AddAct(MarkRelease(hidden_states), MarkRelease(residual)));
 	}
 	Texture PhiModel(Texture input_ids, string path, int position_id) {
 		var hidden_states = nn.Embedding(input_ids, parameters[$"{path}.embd.wte.weight.T"], transposeWeight:true);
 		for(int i=0; i<config.n_layer; i++)
-			ParallelBlock(ref hidden_states, path:$"{path}.h.{i}", position_id:position_id);
+			ParallelBlock(ref hidden_states, path:$"{path}.h.{i}", position_id:position_id, input_ids:input_ids);
 		// in modeling_phi.py, layernorm is implemented in PhiForCausalLM below
 		return hidden_states;
 	}
