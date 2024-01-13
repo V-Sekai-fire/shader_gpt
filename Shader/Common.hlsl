@@ -29,14 +29,14 @@ float4 gelu_new(float4 x) {
 }
 
 float4 dequantizeWeight(float4 x, float offset) {
-#ifdef QUANTIZE_WEIGHT
+#ifdef WEIGHT_QUANTIZED
 	return x - (x > offset ? 1 : 0);
 #else
 	return x;
 #endif
 }
 float4 dequantizeScale(float4 x, out float4 offset, bool enabled=true, float dstep=256, float estep=2) {
-#ifdef QUANTIZE_WEIGHT
+#ifdef WEIGHT_QUANTIZED
 	if(enabled) {
 		float4 byte = round(x*255 - (x > 0.5 ? 256 : 0));
 		float4 type = round(byte/85);

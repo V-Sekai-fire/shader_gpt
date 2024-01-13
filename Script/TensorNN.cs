@@ -20,18 +20,18 @@ public class TensorNN {
 			SetTensor(mat, "_Weight0", weight0);
 			if(quants.TryGetValue(weight0, out var quant0)) {
 				SetTensor(mat, "_Scale0", quant0);
-				EnableOption(mat, Keyword.QUANTIZE_WEIGHT);
+				EnableOption(mat, Keyword.WEIGHT_QUANTIZED);
 			}
 		}
 		if(weight1) {
 			SetTensor(mat, "_Weight1", weight1);
 			if(quants.TryGetValue(weight1, out var quant1)) {
 				SetTensor(mat, "_Scale1", quant1);
-				EnableOption(mat, Keyword.QUANTIZE_WEIGHT);
+				EnableOption(mat, Keyword.WEIGHT_QUANTIZED);
 			}
 		}
 		if(transposeWeight)
-			EnableOption(mat, Keyword.TRANSPOSE_WEIGHT);
+			EnableOption(mat, Keyword.WEIGHT_TRANSPOSED);
 		ctx.Blit(output, mat);
 		return output;
 	}
@@ -45,38 +45,57 @@ public class TensorNN {
 		SetTensor(mat, "_Weight", weight);
 		mat.SetInt("_Head", head);
 		if(transposeWeight)
-			EnableOption(mat, Keyword.TRANSPOSE_WEIGHT);
+			EnableOption(mat, Keyword.WEIGHT_TRANSPOSED);
 		if(quants.TryGetValue(weight, out var quant)) {
-			EnableOption(mat, Keyword.QUANTIZE_WEIGHT);
+			EnableOption(mat, Keyword.WEIGHT_QUANTIZED);
 			SetTensor(mat, "_Scale", quant);
 		}
 		ctx.Blit(output, mat);
 		return output;
 	}
-	Texture _Reduce(Texture input, Keyword func, int group=1, Vector4? rangeMask=default, float seed=default, Matrix4x4? linear=default) {
+	Texture _Reduce(Texture input, Keyword func, int group=1, Vector4? rangeMask=default, Matrix4x4? linear=default, bool inputReduced=false) {
 		Debug.Assert(ctx.Size1(input) % group == 0);
-		var output = ctx.GPUTensor(ctx.Size0(input), group, dtype:VertexAttributeFormat.Float32);
+		var size1 = group;
+		if(!inputReduced && ctx.Size1(input) / group >= 256) {
+			var n = ctx.Size1(input) / group;
+			if(group == 1)
+				size1 = Mathf.CeilToInt(Mathf.Sqrt(n));
+			else { // ensure ctx.Size1(input) % size1 == 0 && size1 % group == 0
+				var m = 1 << Mathf.CeilToInt(Mathf.Log(n, 2)/2);
+				if(n % m == 0)
+					size1 = group * m;
+			}
+		}
+		var output = ctx.GPUTensor(ctx.Size0(input), size1, dtype:VertexAttributeFormat.Float32);
 		var mat = ctx.Operator(kernels["Reduce"]);
 		EnableOption(mat, func);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
+		if(inputReduced)
+			EnableOption(mat, Keyword.INPUT_REDUCED);
 		if(rangeMask != default)
 			mat.SetVector("_RangeMask", rangeMask.Value);
-		if(seed != default)
-			mat.SetFloat("_Seed", seed);
+		if(size1 > group) {
+			mat.SetInt("_RangeMod", ctx.Size1(input) / group);
+			ctx.Blit(output, mat);
+			var output2 = _Reduce(output, func, group, linear:linear, inputReduced:true);
+			// Debug.Log($"Reduce {func}: {ctx.Size(input)} => {ctx.Size(output)} => {ctx.Size(output2)}");
+			ctx.Release(output);
+			return output2;
+		}
 		if(linear != default) {
 			mat.SetVector("_Linear0", linear.Value.GetColumn(0));
 			mat.SetVector("_Linear1", linear.Value.GetColumn(1));
 			mat.SetVector("_Linear2", linear.Value.GetColumn(2));
 			mat.SetVector("_Linear3", linear.Value.GetColumn(3));
 		}
-		ctx.Blit(output, mat); 
+		ctx.Blit(output, mat);
 		return output;
 	}
 	public Texture GroupNorm(Texture input, Texture weight, Texture bias, float eps, int group=1) {
 		Debug.Assert(ctx.Size0(weight) == 1 && ctx.Size1(weight) == ctx.Size1(input));
 		Debug.Assert(ctx.Size0(bias) == 1 && ctx.Size1(bias) == ctx.Size1(input));
-		var reduce = _Reduce(input, Keyword.REDUCE_MOMENT, group:group);
+		var reduce = _Reduce(input, Keyword.REDUCE_SUMPOW, group:group);
 		var output = ctx.GPUTensor(ctx.Size0(input), ctx.Size1(input), dtype:dataType);
 		var mat = ctx.Operator(kernels["Function"]);
 		EnableOption(mat, Keyword.FUNC_GROUPNORM);
@@ -148,7 +167,7 @@ public class TensorNN {
 	}
 	public Texture Softmax(Texture input, int group=1, Vector4? rangeMask=default) {
 		var temp = _Normalize(input, Keyword.FUNC_SOFTMAX_LINF, Keyword.REDUCE_MINMAX, group:group, rangeMask:rangeMask);
-		var output = _Normalize(temp, Keyword.FUNC_NORMALIZE_L1, Keyword.REDUCE_MOMENT, group:group);
+		var output = _Normalize(temp, Keyword.FUNC_NORMALIZE_L1, Keyword.REDUCE_SUMPOW, group:group);
 		ctx.Release(temp);
 		return output;
 	}
@@ -174,9 +193,10 @@ public class TensorNN {
 
 	public enum Keyword {
 		None = 0,
-		TRANSPOSE_WEIGHT,
-		QUANTIZE_WEIGHT,
-		REDUCE_MOMENT,
+		WEIGHT_TRANSPOSED,
+		WEIGHT_QUANTIZED,
+		INPUT_REDUCED,
+		REDUCE_SUMPOW,
 		REDUCE_MINMAX,
 		FUNC_GROUPNORM,
 		FUNC_SOFTMAX_LINF,

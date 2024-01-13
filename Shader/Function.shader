@@ -48,9 +48,9 @@ float4 main(uint2 pos) {
 	int2 range = pos.x * _RangeMask.xy + _RangeMask.zw;
 	bool4 mask = range.x <= index && index < range.y;
 	#if defined(FUNC_GROUPNORM)
-		O = mask ? (X-R.x) * rsqrt(_Eps + max(0, R.y-R.x*R.x)) : 0; // R is moment
+		O = mask ? (X*R[0]-R[1]) * rsqrt(_Eps*(R[0]*R[0]) + max(0, R[2]*R[0]-R[1]*R[1])) : 0; // R is sum of powers
 	#elif defined(FUNC_NORMALIZE_L1)
-		O = mask ? X / (R.x*(_InputDim.y/_ReduceDim.y)*4) : 0; // R is moment
+		O = mask ? X / R[1] : 0; // R is sum of powers
 	#elif defined(FUNC_SOFTMAX_LINF)
 		O = mask ? saturate(exp(X - R.y)) : 0; // R is minmax
 	#elif defined(FUNC_GUMBEL)

@@ -604,7 +604,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 605325c2f73abef4da9d9950af398865, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  modelPrefab: {fileID: 2963039884304027863, guid: 5552bedda6f23df45ab2c86b5a35f086, type: 3}
+  modelPrefab: {fileID: 3246702639175582867, guid: 5552bedda6f23df45ab2c86b5a35f086, type: 3}
   maxLength: 2048
   temperature: 0
   skipLastToken: 0

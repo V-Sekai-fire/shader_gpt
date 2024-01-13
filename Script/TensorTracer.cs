@@ -60,6 +60,10 @@ public class TensorTracer: TensorContext {
 		var child = new GameObject("bar", typeof(MeshRenderer));
 		child.transform.parent = go.transform; // putting renderer at root may cause editor lag
 		var prefab = PrefabUtility.SaveAsPrefabAssetAndConnect(go, path, InteractionMode.AutomatedAction);
+		// remove old textures and materials
+		foreach(var o in AssetDatabase.LoadAllAssetsAtPath(path))
+			if(o is Texture || o is Material)
+				Object.DestroyImmediate(o, true);
 		{
 			var idx = 0;
 			foreach(var pair in rtDesc) {
@@ -100,6 +104,9 @@ public class TensorTracer: TensorContext {
 #else
 		return null;
 #endif
+	}
+	static void AddObjectToAsset(Object objectToAdd, string path) {
+		AssetDatabase.AddObjectToAsset(objectToAdd, path);
 	}
 }
 }

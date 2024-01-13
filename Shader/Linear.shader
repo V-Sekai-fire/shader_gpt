@@ -30,7 +30,7 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 	float4 O = 0;
 	for(uint k=threadId; k<K; k+=groupSize) {
 		float4 X = _InputTex.mips[_InputDim.w][uint2(pos.x,hK+k).yx];
-		#ifdef TRANSPOSE_WEIGHT
+		#ifdef WEIGHT_TRANSPOSED
 			float4 offset, scale = dequantizeScale(_ScaleTex[uint2(k,pos.y).yx], offset);
 			O += mul(scale * X, float4x4(
 				dequantizeWeight(_WeightTex[uint2(k*4+0,pos.y).yx], offset[0]),
@@ -64,8 +64,8 @@ HLSLPROGRAM
 #pragma target 5.0
 #pragma vertex vertQuad
 #pragma fragment frag
-#pragma shader_feature TRANSPOSE_WEIGHT
-#pragma shader_feature QUANTIZE_WEIGHT
+#pragma shader_feature WEIGHT_TRANSPOSED
+#pragma shader_feature WEIGHT_QUANTIZED
 ENDHLSL
 	}
 }

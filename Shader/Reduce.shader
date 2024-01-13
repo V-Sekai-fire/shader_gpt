@@ -5,6 +5,7 @@ Properties {
 	[HideInInspector]_OutputTex("_OutputTex",2D) = "black" {}
 	[NoScaleOffset]  _InputTex ("_InputTex", 2D) = "black" {}
 	_RangeMask("_RangeMask", Vector) = (0, 0, 0, 65536) // maxTextureSize*4
+	_RangeMod ("_RangeMod",  Int) = 1
 	_Linear0("_Linear0", Vector) = (1, 0, 0, 0)
 	_Linear1("_Linear1", Vector) = (0, 1, 0, 0)
 	_Linear2("_Linear2", Vector) = (0, 0, 1, 0)
@@ -18,57 +19,60 @@ HLSLINCLUDE
 
 uint4 _OutputDim;
 Texture2D<float4> _InputTex; uint4 _InputDim;
-uniform int4  _RangeMask;
+uniform int4 _RangeMask;
+uniform uint _RangeMod;
 uniform float4 _Linear0;
 uniform float4 _Linear1;
 uniform float4 _Linear2;
 uniform float4 _Linear3;
 
-static const float oo = 3e38;
+static const float oo = asfloat(0x7f7fffff);
+float4 min4(float4 v) {
+	return min(min(v.x, v.y), min(v.z, v.w));
+}
+float4 max4(float4 v) {
+	return max(max(v.x, v.y), max(v.z, v.w));
+}
 
 float4 main(uint2 pos) {
 	// torch.mean, torch.aminmax
-	// output[i,j].x = torch.mean(pow(input[i,j*K+k][c], 1), dim=(k,c))
-	// output[i,j].y = torch.mean(pow(input[i,j*K+k][c], 2), dim=(k,c))
+	// output[i,j][e] = torch.mean(pow(input[i,j*K+k][c], e), dim=(k,c))
 	// output[i,j].xz = torch.min(min4(input[i,j*K+k][c], dim=(k,c))
 	// output[i,j].yw = torch.max(min4(input[i,j*K+k][c], dim=(k,c))
 
-	uint K = _InputDim.y/_OutputDim.y, jK = pos.y*K;
-	float4 O0 = 0;
-	float4 O1 = 0;
-	float4 O2 = 0;
-	float4 O3 = 0;
-#if defined(REDUCE_MINMAX)
-	O0 = +oo;
-	O1 = -oo;
-#endif
+	uint K = 1+(_InputDim.y-1)/_OutputDim.y, jK = pos.y*K;
 	int2 range = pos.x * _RangeMask.xy + _RangeMask.zw;
+	#if defined(REDUCE_SUMPOW)
+		float4 O = 0;
+	#elif defined(REDUCE_MINMAX)
+		float4 O = float4(+oo, -oo, 0, 0);
+	#endif
+	K = min(K, uint(max(0, int(_InputDim.y-jK)))); // prevent out-of-bound read of _InputTex
 	for(uint k=0; k<K; k++) {
 		float4 X = _InputTex.mips[_InputDim.w][uint2(pos.x,jK+k).yx];
-		int4 index = k*4 + uint4(0,1,2,3);
-		bool4 mask = range.x <= index && index < range.y;
-		// TODO: impl mask for all reductions 
-		#if defined(REDUCE_MINMAX)
-			O2 = mask && X < O0 ? k : O2;
-			O3 = mask && X > O1 ? k : O3;
-			O0 = mask ? min(X, O0) : O0;
-			O1 = mask ? max(X, O1) : O1;
-		#elif defined(REDUCE_MOMENT)
-			O0 += X;
-			O1 += X*X;
+		#if !defined(INPUT_REDUCED)
+			int4 index = (jK%_RangeMod+k)*4 + uint4(0,1,2,3);
+			bool4 mask = range.x <= index && index < range.y;
+			#if defined(REDUCE_SUMPOW)
+				X = float4(dot(mask, 1), dot(mask, X), dot(mask, X*X), 0); // cubic not implemented
+			#elif defined(REDUCE_MINMAX)
+				float4 Xmin = mask ? X : +oo;
+				float4 Xmax = mask ? X : -oo;
+				X[0] = min4(Xmin);
+				X[1] = max4(Xmax);
+				X[2] = min4(Xmin == X[0] ? index : +oo);
+				X[3] = min4(Xmax == X[1] ? index : +oo);
+			#endif
+		#endif
+		#if defined(REDUCE_SUMPOW)
+			O += X;
+		#elif defined(REDUCE_MINMAX)
+			O[2] = X[0] < O[0] ? X[2] : O[2];
+			O[3] = X[1] > O[1] ? X[3] : O[3];
+			O[0] = min(X[0], O[0]);
+			O[1] = max(X[1], O[1]);
 		#endif
 	}
-#if defined(REDUCE_MINMAX)
-	float4 O = float4(+oo, -oo, 0, 0);
-	[unroll] for(uint c=0; c<4; c++) {
-		O[2] = O0[c] < O[0] ? O2[c]*4+c : O[2];
-		O[3] = O1[c] > O[1] ? O3[c]*4+c : O[3];
-		O[0] = min(O0[c], O[0]);
-		O[1] = max(O1[c], O[1]);
-	}
-#elif defined(REDUCE_MOMENT)
-	float4 O = float4(dot(0.25/K, O0), dot(0.25/K, O1), 0, 0);
-#endif
 	// return 
 	// 	+(_Linear0 == 0 ? 0 : _Linear0*O[0])
 	// 	+(_Linear1 == 0 ? 0 : _Linear1*O[1])
@@ -90,7 +94,8 @@ HLSLPROGRAM
 #pragma target 5.0
 #pragma vertex vertQuad
 #pragma fragment frag
-#pragma shader_feature REDUCE_MOMENT REDUCE_MINMAX
+#pragma shader_feature INPUT_REDUCED
+#pragma shader_feature REDUCE_SUMPOW REDUCE_MINMAX
 ENDHLSL
 	}
 }

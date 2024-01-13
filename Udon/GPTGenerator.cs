@@ -58,9 +58,9 @@ public class GPTGenerator : MonoBehaviour
 				matDynRangeMask[matDynRangeMaskLength++] = mat;
 			if(mat.HasProperty("_OutputOff") && rt.height == maxPosLength)
 				matDynOutputOff[matDynOutputOffLength++] = mat;
-			if(mat.shaderKeywords.Length >= 1 && mat.shaderKeywords[0] == "FUNC_GUMBEL")
+			if(mat.shaderKeywords.Length == 1 && mat.shaderKeywords[0] == "FUNC_GUMBEL")
 				matGumbel = mat;
-			if(mat.shaderKeywords.Length >= 1 && mat.shaderKeywords[0] == "REDUCE_MINMAX")
+			if(mat.shaderKeywords.Length == 1 && mat.shaderKeywords[0] == "REDUCE_MINMAX")
 				matSample = mat;
 		}
 		matDynRangeMask = Take(matDynRangeMask, matDynRangeMaskLength);

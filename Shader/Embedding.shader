@@ -31,7 +31,7 @@ float4 main(uint2 pos) {
 
 	uint2 X = round(_InputTex.mips[_InputDim.w][uint2(pos.x,0).yx]);
 	float4 O;
-#ifdef TRANSPOSE_WEIGHT
+#ifdef WEIGHT_TRANSPOSED
 	// tested: error rate of per-channel block q8 is smaller than per-word
 	float4 offset0, scale0 = dequantizeScale(_Scale0Tex[uint2(pos.y,X[0]/4).yx], offset0, _Scale0Dim.x != 0);
 	float4 offset1, scale1 = dequantizeScale(_Scale1Tex[uint2(pos.y,X[1]/4).yx], offset1, _Scale1Dim.x != 0);
@@ -60,8 +60,8 @@ HLSLPROGRAM
 #pragma target 5.0
 #pragma vertex vertQuad
 #pragma fragment frag
-#pragma shader_feature TRANSPOSE_WEIGHT
-#pragma shader_feature QUANTIZE_WEIGHT
+#pragma shader_feature WEIGHT_TRANSPOSED
+#pragma shader_feature WEIGHT_QUANTIZED
 ENDHLSL
 	}
 }
