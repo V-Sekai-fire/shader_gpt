@@ -21,6 +21,19 @@ public class TensorContext {
 		tex.Apply(updateMipmaps:false, makeNoLongerReadable:false);
 	}
 	public Texture Copy(Texture2D output, RenderTexture input, Vector2Int size, Vector2Int outputOffset=default, Vector2Int inputOffset=default) {
+		var mipmap = Mipmap(input);
+		if(mipmap != 0) {
+			// copy last mip level for ReadPixels
+			var desc = input.descriptor;
+			desc.width >>= mipmap;
+			desc.height >>= mipmap;
+			desc.useMipMap = false;
+			var clone = RenderTexture.GetTemporary(desc);
+			Graphics.CopyTexture(input, 0, mipmap, clone, 0, 0);
+			Copy(output, clone, size, outputOffset:outputOffset, inputOffset:inputOffset);
+			RenderTexture.ReleaseTemporary(clone);
+			return output;
+		}
 		var active = RenderTexture.active;
 		RenderTexture.active = input;
 		output.ReadPixels(new Rect(inputOffset.y, inputOffset.x, size.y, size.x), outputOffset.y, outputOffset.x);
@@ -85,10 +98,6 @@ public class TensorContext {
 		return texSet.Count;
 	}
 	public float[] GetData(RenderTexture input) {
-		if(Mipmap(input) != 0) {
-			Debug.LogError($"GetData not implemented: Mipmap(input)={Mipmap(input)}");
-			return null;
-		}
 		var clone = CPUTensor(Size0(input), Size1(input), dtype:DType(input));
 		Copy(clone, (RenderTexture)input, new Vector2Int(Size0(input), Size1(input)));
 		var output = GetData(clone).ToArray();

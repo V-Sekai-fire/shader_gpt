@@ -23,9 +23,15 @@ float4 gelu(float4 x) {
 }
 float4 gelu_new(float4 x) {
 	// transformers.activations.NewGELUActivation
-	float4 a = (x + x*x*x*0.044715) * 1.5957691216057308;
-	float4 t = 1.0 / (1.0 + exp(-abs(a)));
-	return x * (x > 0 ? t : 1.0-t);
+	float4 a = abs(x + x*x*x*0.044715) * 1.5957691216057308;
+	float4 t = exp(-a) / (1.0 + exp(-a));
+	return x * (x > 0 ? 1.0-t : t);
+}
+float4 silu(float4 x) {
+	// torch.nn.functional.silu
+	float4 a = abs(x);
+	float4 t = exp(-a) / (1.0 + exp(-a));
+	return x * (x > 0 ? 1.0-t : t);
 }
 
 float4 dequantizeWeight(float4 x, float offset) {

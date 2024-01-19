@@ -9,12 +9,13 @@ Properties {
 	[HideInInspector]_OutputTex("_OutputTex",2D) = "black" {}
 	[NoScaleOffset] _InputTex ("_InputTex",  2D) = "black" {}
 	[NoScaleOffset] _ReduceTex("_ReduceTex", 2D) = "black" {}
+	[NoScaleOffset] _OffsetTex("_OffsetTex", 2D) = "black" {}
 	[NoScaleOffset] _WeightTex("_WeightTex", 2D) = "black" {}
 	[NoScaleOffset] _BiasTex  ("_BiasTex",   2D) = "black" {}
 	[NoScaleOffset] _RotaryTex("_RotaryTex", 2D) = "black" {}
 	_InputOff ("_InputOff",  Vector) = (0, 0, 0, 0)
 	_OutputOff("_OutputOff", Vector) = (0, 0, 0, 0)
-	_RangeMask("_RangeMask", Vector) = (0, 0, 0, 65536) // maxTextureSize*4
+	_IndexRange("_IndexRange", Vector) = (0, 65536, 0, 0) // maxTextureSize*4
 	_Eps("_Eps", Float) = 0
 	_Weight("_Weight", Vector) = (1, 1, 1, 1)
 	_Bias  ("_Bias",   Vector) = (0, 0, 0, 0)
@@ -28,12 +29,13 @@ HLSLINCLUDE
 uint2 _OutputDim;
 Texture2D<float4> _InputTex;  uint4 _InputDim;
 Texture2D<float4> _ReduceTex; uint2 _ReduceDim;
-Texture2D<float4> _WeightTex; uint2 _WeightDim;
-Texture2D<float4> _BiasTex;   uint2 _BiasDim;
+Texture2D<float4> _OffsetTex;
+Texture2D<float4> _WeightTex; uint4 _WeightDim;
+Texture2D<float4> _BiasTex;   uint4 _BiasDim;
 Texture2D<float4> _RotaryTex; uint2 _RotaryDim;
 uniform uint2 _InputOff;
-uniform uint2 _OutputOff;
-uniform int4  _RangeMask;
+uniform uint4 _OutputOff;
+uniform float4 _IndexRange;
 uniform float _Eps;
 uniform float4 _Weight;
 uniform float4 _Bias;
@@ -45,7 +47,7 @@ float4 main(uint2 pos) {
 	float4 R = _ReduceTex[uint2(pos.xy*_ReduceDim.xy/_InputDim.xy).yx];
 	float4 O = X;
 	int4 index = pos.y%(_InputDim.y/_ReduceDim.y)*4 + uint4(0,1,2,3);
-	int2 range = pos.x * _RangeMask.xy + _RangeMask.zw;
+	int2 range = _IndexRange.xy + dot(_IndexRange.zw, _OffsetTex[uint2(pos.x,0).yx].xy);
 	bool4 mask = range.x <= index && index < range.y;
 	#if defined(FUNC_GROUPNORM)
 		O = mask ? (X*R[0]-R[1]) * rsqrt(_Eps*(R[0]*R[0]) + max(0, R[2]*R[0]-R[1]*R[1])) : 0; // R is sum of powers
@@ -76,23 +78,26 @@ float4 main(uint2 pos) {
 
 	O *= _Weight;
 	if(_WeightDim.x)
-		O *= _WeightTex[uint2(pos.xy*_WeightDim.xy/_InputDim.xy).yx];
+		O *= _WeightTex.mips[_WeightDim.w][uint2(pos.xy*_WeightDim.xy/_InputDim.xy).yx];
 	O += _Bias;
 	if(_BiasDim.x)
-		O += _BiasTex[uint2(pos.xy*_BiasDim.xy/_InputDim.xy).yx];
+		O += _BiasTex.mips[_BiasDim.w][uint2(pos.xy*_BiasDim.xy/_InputDim.xy).yx];
 
 	#if defined(FUNC_GELU)
 		O = gelu(O);
 	#elif defined(FUNC_GELU_NEW)
 		O = gelu_new(O);
+	#elif defined(FUNC_SILU)
+		O = silu(O);
 	#endif
 	return O;
 }
 float4 frag(float4 screenPos : SV_Position) : SV_Target {
 	uint2 pos = floor(screenPos.yx);
-	if(!all(_OutputOff.xy <= pos && pos < _OutputOff.xy + _OutputDim.xy))
+	int2 off = _OutputOff.xy + int2(dot(_OutputOff.zw, _OffsetTex[uint2(0,0).yx].xy), 0);
+	if(!all(off <= pos && pos < off + _OutputDim.xy))
 		discard;
-	return main(pos-_OutputOff.xy);
+	return main(pos-off);
 }
 ENDHLSL
 	Pass {
@@ -101,7 +106,7 @@ HLSLPROGRAM
 #pragma target 5.0
 #pragma vertex vertQuad
 #pragma fragment frag
-#pragma shader_feature _ FUNC_GROUPNORM FUNC_SOFTMAX_LINF FUNC_NORMALIZE_L1 FUNC_GELU FUNC_GELU_NEW FUNC_GUMBEL FUNC_ROTARY
+#pragma shader_feature _ FUNC_GROUPNORM FUNC_SOFTMAX_LINF FUNC_NORMALIZE_L1 FUNC_GELU FUNC_GELU_NEW FUNC_SILU FUNC_GUMBEL FUNC_ROTARY
 ENDHLSL
 	}
 }

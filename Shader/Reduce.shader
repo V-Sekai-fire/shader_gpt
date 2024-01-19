@@ -3,9 +3,10 @@ Properties {
 	_OutputDim("_OutputDim", Vector) = (1, 1, 1, 0)
 	_InputDim ("_InputDim",  Vector) = (1, 1, 1, 0)
 	[HideInInspector]_OutputTex("_OutputTex",2D) = "black" {}
-	[NoScaleOffset]  _InputTex ("_InputTex", 2D) = "black" {}
-	_RangeMask("_RangeMask", Vector) = (0, 0, 0, 65536) // maxTextureSize*4
-	_RangeMod ("_RangeMod",  Int) = 1
+	[NoScaleOffset] _InputTex ("_InputTex",  2D) = "black" {}
+	[NoScaleOffset] _OffsetTex("_OffsetTex", 2D) = "black" {}
+	_IndexRange("_IndexRange", Vector) = (0, 65536, 0, 0) // maxTextureSize*4
+	_IndexMod  ("_IndexMod",   Int) = 1
 	_Linear0("_Linear0", Vector) = (1, 0, 0, 0)
 	_Linear1("_Linear1", Vector) = (0, 1, 0, 0)
 	_Linear2("_Linear2", Vector) = (0, 0, 1, 0)
@@ -19,8 +20,9 @@ HLSLINCLUDE
 
 uint4 _OutputDim;
 Texture2D<float4> _InputTex; uint4 _InputDim;
-uniform int4 _RangeMask;
-uniform uint _RangeMod;
+Texture2D<float4> _OffsetTex;
+uniform float4 _IndexRange;
+uniform uint   _IndexMod;
 uniform float4 _Linear0;
 uniform float4 _Linear1;
 uniform float4 _Linear2;
@@ -41,7 +43,7 @@ float4 main(uint2 pos) {
 	// output[i,j].yw = torch.max(min4(input[i,j*K+k][c], dim=(k,c))
 
 	uint K = 1+(_InputDim.y-1)/_OutputDim.y, jK = pos.y*K;
-	int2 range = pos.x * _RangeMask.xy + _RangeMask.zw;
+	int2 range = _IndexRange.xy + dot(_IndexRange.zw, _OffsetTex[uint2(pos.x,0).yx].xy);
 	#if defined(REDUCE_SUMPOW)
 		float4 O = 0;
 	#elif defined(REDUCE_MINMAX)
@@ -51,7 +53,7 @@ float4 main(uint2 pos) {
 	for(uint k=0; k<K; k++) {
 		float4 X = _InputTex.mips[_InputDim.w][uint2(pos.x,jK+k).yx];
 		#if !defined(INPUT_REDUCED)
-			int4 index = (jK%_RangeMod+k)*4 + uint4(0,1,2,3);
+			int4 index = (jK%_IndexMod+k)*4 + uint4(0,1,2,3);
 			bool4 mask = range.x <= index && index < range.y;
 			#if defined(REDUCE_SUMPOW)
 				X = float4(dot(mask, 1), dot(mask, X), dot(mask, X*X), 0); // cubic not implemented

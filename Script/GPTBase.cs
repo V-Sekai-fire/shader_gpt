@@ -123,7 +123,7 @@ public abstract class GPTBase : MonoBehaviour {
 		var logits = nn.Copy(null, lm_logits,
 			inputOffset:new Vector2Int(ctx.Size0(lm_logits)-1, 0), size:new Vector2Int(1, ctx.Size1(lm_logits)));
 		var logits_gumbel = BatchRelease(nn.Gumbel(MarkRelease(logits), temperature));
-		return BatchRelease(nn.ArgMax(MarkRelease(logits_gumbel), rangeMask:new Vector4(0,0,0,vocab_size)));
+		return BatchRelease(nn.ArgMax(MarkRelease(logits_gumbel), indexRange:new Vector2(0,vocab_size)));
 	}
 
 	// utilities
