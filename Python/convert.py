@@ -52,16 +52,7 @@ def export_lm(model, folder, force_write=False, quantize=None):
 
 	model_type = model.config.model_type
 	state_dict = dict(model.state_dict())
-	if model_type == "gpt_neo":
-		for name, data in list(state_dict.items()):
-			if name in ["transformer.wte.weight", "transformer.wpe.weight"]:
-				state_dict[f"{name}.T"] = data.T
-			elif name == "lm_head.weight":
-				pass
-			else:
-				continue
-			del state_dict[name]
-	elif model_type == "gpt2":
+	if model_type == "gpt_neo" or model_type == "gpt2":
 		for name, data in list(state_dict.items()):
 			if name in ["transformer.wte.weight", "transformer.wpe.weight"]:
 				state_dict[f"{name}.T"] = data.T
@@ -80,7 +71,7 @@ def export_lm(model, folder, force_write=False, quantize=None):
 					state_dict[f"{prefix  }key.bias"] = data[1]
 					state_dict[f"{prefix}value.bias"] = data[2]
 			else:
-				if m := re.search(r"(c_fc|c_proj)[.]weight$", name):
+				if model_type == "gpt2" and re.search(r"(c_fc|c_proj)[.]weight$", name):
 					state_dict[name] = data.transpose(0,1)
 				continue
 			del state_dict[name]
@@ -110,29 +101,20 @@ def export_lm(model, folder, force_write=False, quantize=None):
 			else:
 				continue
 			del state_dict[name]
-	elif model_type == "phi-msft":
+	elif model_type == "llama" or model_type == "phi":
 		for name, data in list(state_dict.items()):
-			if name in ["transformer.embd.wte.weight", "lm_head.linear.weight"]:
+			if name in ["model.embed_tokens.weight", "lm_head.weight"]:
 				state_dict[f"{name}.T"] = data.T
-			elif m := re.fullmatch(r"transformer[.]h[.](\d+)[.]mixer([.]Wqkv[.](weight|bias))", name):
+			elif m := re.fullmatch(r"model[.]layers[.](\d+)[.]self_attn([.]q_proj[.](weight|bias))", name):
 				prefix = name[:-len(m[2])]
-				mixer = model.transformer.h[int(m[1])].mixer
-				norm_factor = mixer.inner_cross_attn.softmax_scale or 1.0 / math.sqrt(mixer.head_dim)
-				data = data.view(3, -1)
-				if m[3] == "weight":
-					state_dict[f"{prefix}.Wq.weight"] = data[0].reshape(model.config.n_embd, -1)
-					state_dict[f"{prefix}.Wk.weight"] = data[1].reshape(model.config.n_embd, -1) * norm_factor
-					state_dict[f"{prefix}.Wv.weight"] = data[2].reshape(model.config.n_embd, -1)
-				else:
-					state_dict[f"{prefix}.Wq.bias"] = data[0].reshape(model.config.n_embd)
-					state_dict[f"{prefix}.Wk.bias"] = data[1].reshape(model.config.n_embd) * norm_factor
-					state_dict[f"{prefix}.Wv.bias"] = data[2].reshape(model.config.n_embd)
-
-				rotary_emb = mixer.rotary_emb
+				self_attn = model.model.layers[int(m[1])].self_attn
+				rotary_emb = self_attn.rotary_emb
+				state_dict[name] = data / math.sqrt(self_attn.head_dim)
 				weight = torch.cat((
-					rotary_emb._cos_cached[..., :mixer.rotary_dim//2],
-					rotary_emb._sin_cached[..., :mixer.rotary_dim//2]), dim=-1)
-				state_dict[f"{prefix}.rotary_emb.weight"] = weight[..., :, :]
+					rotary_emb.cos_cached[..., :rotary_emb.cos_cached.shape[-1]//2],
+					rotary_emb.sin_cached[..., :rotary_emb.sin_cached.shape[-1]//2]), dim=-1)
+				state_dict[f"{prefix}.rotary_emb.weight"] = weight
+				continue
 			else:
 				continue
 			del state_dict[name]
@@ -141,7 +123,7 @@ def export_lm(model, folder, force_write=False, quantize=None):
 
 	for name, data in state_dict.items():
 		data = data.cpu().numpy()
-		print("\t", name, data.shape)
+		print("\t", name, data.shape, data.dtype)
 		if re.search(r"\.weight(\.T)?$", name) and len(data.shape) == 2:
 			data = pad_align(data, [1, 4]).reshape(data.shape[0], -1, 4)
 		elif re.search(r"\.(weight|bias)$", name) and len(data.shape) == 1:
@@ -173,20 +155,38 @@ def export_lm(model, folder, force_write=False, quantize=None):
 			imwrite(folder/f"{name}.exr", data[::-1])
 
 def export_tokenizer(tokenizer, folder):
-	byte_decoder = None
-	token_to_chrs = lambda token: "".join(chr(byte_decoder.get(ch) or ord(ch)) for ch in token)
 	if tokenizer.is_fast:
-		from transformers.models.gpt2.tokenization_gpt2 import bytes_to_unicode
-		byte_decoder = {ch: b for b, ch in bytes_to_unicode().items()}
-		data = json.loads(tokenizer.backend_tokenizer.to_str())
-		merges = [" ".join(token_to_chrs(token) for token in merge.split()) for merge in data["model"]["merges"]]
+		fast_tokenizer = tokenizer.backend_tokenizer
 	else:
-		byte_decoder = tokenizer.byte_decoder
-		merges = [" ".join(token_to_chrs(token) for token in pair) for pair in tokenizer.bpe_ranks.keys()]
-	
-	vocab = [None] * len(tokenizer.get_vocab())
-	for token, id in tokenizer.get_vocab().items():
-		vocab[id] = token_to_chrs(token)
+		from transformers.convert_slow_tokenizer import convert_slow_tokenizer
+		fast_tokenizer = convert_slow_tokenizer(tokenizer)
+	model = fast_tokenizer.model
+	pre_tokenizer = fast_tokenizer.pre_tokenizer
+
+	if type(model).__name__ == "BPE":
+		data = json.loads(fast_tokenizer.to_str())
+		merges = [x.split(" ", 1) for x in data["model"]["merges"]]
+		if pre_tokenizer is None:
+			prefix_len = len(tokenizer.decode([0]))
+			decode_token = lambda token: bytes((int(token[1:-1], 16),)) \
+				if model.byte_fallback and re.fullmatch(r"<0x[0-9A-F]{2}>", token) \
+				else tokenizer.decode([0, tokenizer.convert_tokens_to_ids(token)])[prefix_len:].encode()
+		elif type(pre_tokenizer).__name__ == "ByteLevel":
+			from transformers.models.gpt2.tokenization_gpt2 import bytes_to_unicode
+			byte_decoder = {c: b for b, c in bytes_to_unicode().items()}
+			decode_token = lambda token: bytes(byte_decoder[c] for c in token)
+		else:
+			raise NotImplementedError(f"pre_tokenizer {type(pre_tokenizer)} is not supported")
+	else:
+		raise NotImplementedError(f"model {type(model)} is not supported")
+
+	vocab = [tokenizer.convert_ids_to_tokens(i) for i in range(len(tokenizer.get_vocab()))]
+	merges = [tokenizer.convert_tokens_to_ids(x) for x in merges]
+	added_tokens = [k for k, v in sorted(tokenizer.added_tokens_encoder.items(), key=lambda item: item[1])]
+
+	added_tokens_set = set(added_tokens)
+	vocab = [token if token in added_tokens_set else "".join(chr(b) for b in decode_token(token)) for token in vocab]
+	merges = [f"{vocab[i]} {vocab[j]}" for i, j in merges]
 
 	# workaround for broken json parser
 	escape_brackets = lambda lst: [re.sub(r'[\[\]\{\}]', lambda m: f"\\u{ord(m.group()) :04X}", x) for x in lst]
@@ -195,6 +195,7 @@ def export_tokenizer(tokenizer, folder):
 		vocab  = escape_brackets(vocab),
 		merges = escape_brackets(merges),
 		eos_token_id = tokenizer.eos_token_id,
+		added_tokens = added_tokens,
 	), ensure_ascii=True, indent=2))
 
 	os.makedirs(folder, exist_ok=True)
@@ -212,16 +213,9 @@ def export_testcase(model, tokenizer, folder, force_write=False):
 		"previously unexplored valley, in the Andes Mountains. Even more surprising to the "
 		"researchers was the fact that the unicorns spoke perfect English."
 	)
-	input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
-	if model.config.model_type == "phi-msft":
-		attention_mask = torch.ones_like(input_ids, device=input_ids.device).long()
-		hidden_states = model.transformer(**model.prepare_inputs_for_generation(input_ids, None, attention_mask))
-		lm_logits = model.lm_head(hidden_states)
-		from transformers.modeling_outputs import CausalLMOutputWithPast
-		outputs = CausalLMOutputWithPast(logits=lm_logits, hidden_states=[hidden_states])
-	else:
-		position_ids = torch.ones_like(input_ids, device=input_ids.device).long().cumsum(-1) - 1
-		outputs = model(input_ids=input_ids, position_ids=position_ids, output_hidden_states=True, return_dict=True)
+	input_ids = tokenizer(prompt, return_tensors="pt", padding=False, add_special_tokens=False).input_ids.to(model.device)
+	position_ids = torch.ones_like(input_ids, device=input_ids.device).long().cumsum(-1) - 1
+	outputs = model(input_ids=input_ids, position_ids=position_ids, output_hidden_states=True, return_dict=True)
 
 	os.makedirs(folder, exist_ok=True)
 	print(folder/"testcase.json")

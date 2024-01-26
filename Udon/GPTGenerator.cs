@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEngine.Rendering;
 #if UDON
 using VRC.SDK3.Rendering;
@@ -26,8 +26,6 @@ public class GPTGenerator : MonoBehaviour
 	public string eventMethod;
 
 	private Material[] materials;
-	private Material[] matDynRangeMask;
-	private Material[] matDynOutputOff;
 	private Material matGumbel;
 	private Material matSample;
 	private Material matOutput;
@@ -46,25 +44,15 @@ public class GPTGenerator : MonoBehaviour
 
 		matOutput = materials[materials.Length-1];
 		bufOutput = (RenderTexture)matOutput.GetTexture("_OutputTex");
-		matDynRangeMask = new Material[materials.Length];
-		matDynOutputOff = new Material[materials.Length];
 		matGumbel = null;
 		matSample = null;
-		var matDynRangeMaskLength = 0;
-		var matDynOutputOffLength = 0;
 		foreach(var mat in materials) {
 			var rt = (RenderTexture)mat.GetTexture("_OutputTex");
-			if(mat.HasProperty("_RangeMask") && mat.GetVector("_RangeMask").x == 1)
-				matDynRangeMask[matDynRangeMaskLength++] = mat;
-			if(mat.HasProperty("_OutputOff") && rt.height == maxPosLength)
-				matDynOutputOff[matDynOutputOffLength++] = mat;
 			if(mat.shaderKeywords.Length == 1 && mat.shaderKeywords[0] == "FUNC_GUMBEL")
 				matGumbel = mat;
 			if(mat.shaderKeywords.Length == 1 && mat.shaderKeywords[0] == "REDUCE_MINMAX")
 				matSample = mat;
 		}
-		matDynRangeMask = Take(matDynRangeMask, matDynRangeMaskLength);
-		matDynOutputOff = Take(matDynOutputOff, matDynOutputOffLength);
 	}
 
 	// you need to set inputIndex and inputTokens before enabling
@@ -80,14 +68,8 @@ public class GPTGenerator : MonoBehaviour
 			Graphics.Blit(null, bufOutput, matOutput, 0);
 		}
 
-		var deltaRangeMaskSample = new Vector4(0, 0, 0, -skipLastToken);
-		var deltaRangeMask = new Vector4(0, 0, inputIndex-1, inputIndex-1);
-		var deltaOutputOff = new Vector4(inputIndex-1, 0, 0, 0);
-		matSample.SetVector("_RangeMask", matSample.GetVector("_RangeMask") + deltaRangeMaskSample);
-		foreach(var mat in matDynRangeMask)
-			mat.SetVector("_RangeMask", mat.GetVector("_RangeMask") + deltaRangeMask);
-		foreach(var mat in matDynOutputOff)
-			mat.SetVector("_OutputOff", mat.GetVector("_OutputOff") + deltaOutputOff);
+		var deltaIndexRangeSample = new Vector4(0, -skipLastToken, 0, 0);
+		matSample.SetVector("_IndexRange", matSample.GetVector("_IndexRange") + deltaIndexRangeSample);
 
 		matGumbel.SetVector("_Weight", Vector4.one*temperature);
 		if(inputIndex < inputTokens.Length) {
@@ -100,11 +82,7 @@ public class GPTGenerator : MonoBehaviour
 		foreach(var mat in materials)
 			Graphics.Blit(null, (RenderTexture)mat.GetTexture("_OutputTex"), mat, 0);
 
-		matSample.SetVector("_RangeMask", matSample.GetVector("_RangeMask") - deltaRangeMaskSample);
-		foreach(var mat in matDynRangeMask)
-			mat.SetVector("_RangeMask", mat.GetVector("_RangeMask") - deltaRangeMask);
-		foreach(var mat in matDynOutputOff)
-			mat.SetVector("_OutputOff", mat.GetVector("_OutputOff") - deltaOutputOff);
+		matSample.SetVector("_IndexRange", matSample.GetVector("_IndexRange") - deltaIndexRangeSample);
 		inputIndex++;
 	}
 
@@ -154,12 +132,6 @@ public class GPTGenerator : MonoBehaviour
 #else
 		eventTarget.SendMessage(eventMethod);
 #endif
-	}
-
-	static T[] Take<T>(T[] src, int n) {
-		var dst = new T[n];
-		System.Array.Copy(src, dst, n);
-		return dst;
 	}
 }
 }

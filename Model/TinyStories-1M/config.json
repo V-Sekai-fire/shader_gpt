@@ -97,7 +97,7 @@
   "top_p": 1.0,
   "torch_dtype": "float32",
   "torchscript": false,
-  "transformers_version": "4.34.1",
+  "transformers_version": "4.37.1",
   "typical_p": 1.0,
   "use_bfloat16": false,
   "use_cache": true,

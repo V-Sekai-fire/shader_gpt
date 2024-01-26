@@ -17,6 +17,7 @@ public class GPTTokenizer : MonoBehaviour
 
 	private string[] vocab;
 	private string[] merges;
+	private string[] added_tokens;
 	[System.NonSerialized] public int eos_token_id;
 	void LoadTokenizer() {
 #if UDON
@@ -29,15 +30,20 @@ public class GPTTokenizer : MonoBehaviour
 		else if(!tokenizer_.DataDictionary.TryGetValue("eos_token_id", TokenType.Double, out var eos_token_id_))
 			Debug.LogError($"eos_token_id_: {eos_token_id_}");
 		else {
-			merges = ToStringArray(merges_.DataList);
 			vocab = ToStringArray(vocab_.DataList);
+			merges = ToStringArray(merges_.DataList);
 			eos_token_id = (int)eos_token_id_.Double;
+			if(tokenizer_.DataDictionary.TryGetValue("added_tokens", TokenType.DataList, out var added_tokens_))
+				added_tokens = ToStringArray(added_tokens_.DataList);
+			else
+				added_tokens = null;
 		}
 #else
 		var tokenizer = JsonUtility.FromJson<Tokenizer>(tokenizerJson.text);
 		vocab = tokenizer.vocab;
 		merges = tokenizer.merges;
 		eos_token_id = tokenizer.eos_token_id;
+		added_tokens = tokenizer.added_tokens;
 #endif
 	}
 
@@ -78,19 +84,40 @@ public class GPTTokenizer : MonoBehaviour
 		tokenCount = 0;
 		var textLen = text.Length;
 		for(int i=0; i<textLen; ) {
+			var found = false;
+			if(added_tokens != null)
+				foreach(var token in added_tokens)
+					if(text[i] == token[0] && text.Substring(i).StartsWith(token)) {
+						tokenArray[tokenCount++] = System.Array.LastIndexOf(vocab, token);
+						i += token.Length;
+						found = true;
+						break;
+					}
+			if(found)
+				continue;
 			var j = SplitText(text, textLen, i);
-			var s = ConvertToUtf8(text, i, j);
-			var n = s.Length;
-			var parts = new string[n];
-			for(int k=0; k<n; k++)
-				parts[k] = s.Substring(k, 1);
-			BytePairEncode(parts);
+			Tokenize(ConvertToUtf8(text, i, j));
 			i = j;
 		}
 		return Take(tokenArray, tokenCount);
 	}
-	void BytePairEncode(string[] parts) {
-		var n = parts.Length;
+	private string[] partArray = new string[2048];
+	void Tokenize(string bytes) {
+		var n = bytes.Length;
+		var parts = partArray;
+		var npart = 0;
+		for(int i=0; i<n; i++) {
+			var b = char.ConvertToUtf32(bytes, i);
+			var k = b >= 0b11110000 ? 4 : b >= 0b11100000 ? 3 : b >= 0b11000000 ? 2 : 1;
+			if(i+k <= n && System.Array.IndexOf(vocab, bytes.Substring(i, k)) >= 0) { // prefer full codepoint
+				parts[npart++] = bytes.Substring(i, k);
+				i += k-1;
+			} else // byte fallback
+				parts[npart++] = bytes.Substring(i, 1);
+		}
+		BytePairEncode(parts, npart);
+	}
+	void BytePairEncode(string[] parts, int n) {
 		while(true) {
 			var minRank = 0x7FFFFFFF;
 			var minPos = -1;
@@ -104,7 +131,7 @@ public class GPTTokenizer : MonoBehaviour
 			}
 			if(minPos < 0) {
 				for(int i=0; i<n; i++)
-					tokenArray[tokenCount++] = System.Array.IndexOf(vocab, parts[i]);
+					tokenArray[tokenCount++] = System.Array.LastIndexOf(vocab, parts[i]); // avoid byte fallback tokens
 				return;
 			}
 			parts[minPos-1] += parts[minPos];
@@ -183,6 +210,7 @@ public class GPTTokenizer : MonoBehaviour
 	public class Tokenizer {
 		public string[] vocab;
 		public string[] merges;
+		public string[] added_tokens;
 		public int eos_token_id;
 	}
 #endif

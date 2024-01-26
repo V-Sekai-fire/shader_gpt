@@ -188,7 +188,7 @@
     "\u00fd",
     "\u00fe",
     "\u00ff",
-    "\u0100",
+    "\u0000",
     "\u0001",
     "\u0002",
     "\u0003",
@@ -100260,5 +100260,8 @@
     " inform ants",
     " g azed"
   ],
-  "eos_token_id": 50256
+  "eos_token_id": 50256,
+  "added_tokens": [
+    "<|endoftext|>"
+  ]
 }

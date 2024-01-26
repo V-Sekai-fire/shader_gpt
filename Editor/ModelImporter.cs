@@ -72,8 +72,10 @@ public class ModelImporter {
 			type = typeof(GPTNeo);
 		else if(model_type == "gpt_neox")
 			type = typeof(GPTNeoX);
-		else if(model_type == "phi-msft")
+		else if(model_type == "phi")
 			type = typeof(Phi);
+		else if(model_type == "llama")
+			type = typeof(Llama);
 		else {
 			Debug.LogError($"unsupported architecture {model_type}");
 			return null;
