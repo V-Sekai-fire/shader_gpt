@@ -27,6 +27,10 @@ public class GPTPipeline : MonoBehaviour
 		generator.eventMethod = nameof(OnOutputToken);
 		
 		generator.inputTokens = tokenizer.Encode(inputText.text);
+		// var sb = "";
+		// foreach(var token in generator.inputTokens)
+		// 	sb = string.Format("{0}{1}, ", sb, token);
+		// Debug.Log(string.Format("inputTokens = {0}", sb));
 		generator.inputIndex = 0;
 		tokenizer.decodeState = 0;
 		outputText.text = "";
@@ -44,7 +48,8 @@ public class GPTPipeline : MonoBehaviour
 		if(!generator)
 			return;
 		var token = generator.outputToken;
-		if(token == tokenizer.eos_token_id && !ignoreEosToken) {
+		var index = generator.outputIndex;
+		if(token == tokenizer.eos_token_id && index >= generator.inputTokens.Length && !ignoreEosToken) {
 			eos = true;
 			generator.enabled = false;
 			return;

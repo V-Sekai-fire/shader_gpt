@@ -105,8 +105,5 @@ public class TensorTracer: TensorContext {
 		return null;
 #endif
 	}
-	static void AddObjectToAsset(Object objectToAdd, string path) {
-		AssetDatabase.AddObjectToAsset(objectToAdd, path);
-	}
 }
 }

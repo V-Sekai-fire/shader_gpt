@@ -54,10 +54,11 @@ def export_lm(model, folder, force_write=False, quantize=None):
 	state_dict = dict(model.state_dict())
 	if model_type == "gpt_neo" or model_type == "gpt2":
 		for name, data in list(state_dict.items()):
-			if name in ["transformer.wte.weight", "transformer.wpe.weight"]:
-				state_dict[f"{name}.T"] = data.T
-			elif name == "lm_head.weight":
-				pass
+			if name in ["transformer.wte.weight", "transformer.wpe.weight", "lm_head.weight"]:
+				if name == "lm_head.weight" and torch.allclose(data, model.state_dict()["transformer.wte.weight"]):
+					pass # skip duplicate weights to save space
+				else:
+					state_dict[f"{name}.T"] = data.T
 			elif m := re.fullmatch(r"transformer[.]h[.](\d+)[.]attn[.]c_(attn[.](weight|bias))", name):
 				prefix = name[:-len(m[2])]
 				norm_factor = 1 / (model.transformer.h[int(m[1])].attn.head_dim ** 0.5)

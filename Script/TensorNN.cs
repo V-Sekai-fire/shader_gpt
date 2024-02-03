@@ -99,7 +99,7 @@ public class TensorNN {
 		Debug.Assert(ctx.Size0(weight) == 1 && ctx.Size1(weight) == ctx.Size1(input));
 		Debug.Assert(rmsNorm ? !bias : (ctx.Size0(bias) == 1 && ctx.Size1(bias) == ctx.Size1(input)));
 		var reduce = _Reduce(input, Keyword.REDUCE_SUMPOW, groups:groups,
-			linear: rmsNorm ? new Matrix4x4(new Vector4(1,0,0,0), default, new Vector4(0,0,1,0), default) : null);
+			linear: rmsNorm ? (Matrix4x4?)new Matrix4x4(new Vector4(1,0,0,0), default, new Vector4(0,0,1,0), default) : null);
 		var output = ctx.GPUTensor(ctx.Size0(input), ctx.Size1(input), dtype:dataType);
 		var mat = ctx.Operator(kernels["Function"]);
 		EnableOption(mat, Keyword.FUNC_GROUPNORM);

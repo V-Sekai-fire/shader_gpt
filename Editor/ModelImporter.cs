@@ -168,9 +168,12 @@ public class ModelImporter {
 			dtype == DataType.Float32 ? TextureImporterFormat.RGBAFloat :
 			!File.Exists(Path.ChangeExtension(path, ".q8.png")) ? TextureImporterFormat.RGBAHalf :
 			dtype == DataType.Unorm4 ? (
-				new FileInfo(path).Length > minSizeQ4 ? TextureImporterFormat.ARGB16 : TextureImporterFormat.RGBA32) :
+				GetFileSize(path) >= minSizeQ4 ? TextureImporterFormat.ARGB16 : TextureImporterFormat.RGBA32) :
 			dtype == DataType.Unorm8 ? TextureImporterFormat.RGBA32 :
 			TextureImporterFormat.RGBAHalf;
+	}
+	static long GetFileSize(string path) {
+		return new FileInfo(path).Length;
 	}
 	static string[] GetTexturePaths(string folder) {
 		return AssetDatabase.FindAssets("t:Texture", new string[]{folder}).Select(

@@ -91,7 +91,8 @@ public class GPTNeo : GPTBase {
 	}
 	(Texture, Texture) GPTNeoForCausalLM(Texture input_ids) {
 		var hidden_states = GPTNeoModel(input_ids, path:"transformer");
-		var lm_logits = nn.Linear(hidden_states, parameters["transformer.wte.weight.T"], transposeWeight:true);
+		parameters.TryGetValue("lm_head.weight.T", out var lm_head);
+		var lm_logits = nn.Linear(hidden_states, lm_head ?? parameters["transformer.wte.weight.T"], transposeWeight:true);
 		return (hidden_states, lm_logits);
 	}
 }

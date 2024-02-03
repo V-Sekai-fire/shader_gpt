@@ -18,6 +18,7 @@ The following models are tested:
 * [LaMini-GPT-124M](https://huggingface.co/MBZUAI/LaMini-GPT-124M) (GPT2)
 * [phi-1_5](https://huggingface.co/microsoft/phi-1_5) (Phi)
 * [TinyLlama-1.1B-orca-v1.0](https://huggingface.co/sreeramajay/TinyLlama-1.1B-orca-v1.0) (LLaMA)
+* [zyte-1B](https://huggingface.co/aihub-app/zyte-1B) (LLaMA)
 
 ## Import a model
 

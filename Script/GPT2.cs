@@ -93,7 +93,8 @@ public class GPT2 : GPTBase {
 	}
 	(Texture, Texture) GPT2LMHeadModel(Texture input_ids) {
 		var hidden_states = GPT2Model(input_ids, path:"transformer");
-		var lm_logits = nn.Linear(hidden_states, parameters["transformer.wte.weight.T"], transposeWeight:true);
+		parameters.TryGetValue("lm_head.weight.T", out var lm_head);
+		var lm_logits = nn.Linear(hidden_states, lm_head ?? parameters["transformer.wte.weight.T"], transposeWeight:true);
 		return (hidden_states, lm_logits);
 	}
 }

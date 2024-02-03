@@ -80,29 +80,36 @@ public class GPTTokenizer : MonoBehaviour
 	
 	private int[] tokenArray = new int[2048];
 	private int tokenCount;
-	public int[] Encode(string text) {
+	public int[] Encode(string text, bool split_special_tokens=true) {
 		tokenCount = 0;
 		var textLen = text.Length;
 		for(int i=0; i<textLen; ) {
-			var found = false;
-			if(added_tokens != null)
-				foreach(var token in added_tokens)
-					if(text[i] == token[0] && text.Substring(i).StartsWith(token)) {
-						tokenArray[tokenCount++] = System.Array.LastIndexOf(vocab, token);
-						i += token.Length;
-						found = true;
-						break;
+			// from PreTrainedTokenizer.tokenize
+			var j = textLen;
+			var token = default(string);
+			if(split_special_tokens && added_tokens != null)
+				foreach(var t in added_tokens) {
+					var k = text.IndexOf(t, i) & 0x7FFFFFFF;
+					if(k < j) {
+						j = k;
+						token = t;
 					}
-			if(found)
-				continue;
-			var j = SplitText(text, textLen, i);
-			Tokenize(ConvertToUtf8(text, i, j));
-			i = j;
+				}
+			// from GPT2Tokenizer._tokenize
+			while(i < j) {
+				var k = SplitNextToken(text, i, j);
+				BytePairEncode(ConvertToUtf8(text, i, k));
+				i = k;
+			}
+			if(token != null) {
+				tokenArray[tokenCount++] = System.Array.IndexOf(vocab, token);
+				i += token.Length;
+			}
 		}
 		return Take(tokenArray, tokenCount);
 	}
 	private string[] partArray = new string[2048];
-	void Tokenize(string bytes) {
+	private void BytePairEncode(string bytes) {
 		var n = bytes.Length;
 		var parts = partArray;
 		var npart = 0;
@@ -115,9 +122,9 @@ public class GPTTokenizer : MonoBehaviour
 			} else // byte fallback
 				parts[npart++] = bytes.Substring(i, 1);
 		}
-		BytePairEncode(parts, npart);
+		BytePairMerge(parts, npart);
 	}
-	void BytePairEncode(string[] parts, int n) {
+	private void BytePairMerge(string[] parts, int n) {
 		while(true) {
 			var minRank = 0x7FFFFFFF;
 			var minPos = -1;
@@ -140,37 +147,31 @@ public class GPTTokenizer : MonoBehaviour
 		}
 	}
 
-	static int SplitText(string text, int textLen, int i) {
+	static int SplitNextToken(string text, int start, int stop) {
+		var i = start;
 		var ch = char.ConvertToUtf32(text, i);
+		// from GPT2Tokenizer.pat
 		if(ch == ' ') {
 			i++;
-			if(i == textLen)
-				return i;
-		} else if(ch == '\'') {
-			i++;
-			if(i == textLen)
-				return i;
-			if(!char.IsLetter(text, i))
+			if(i == stop)
 				return i;
 		}
-		if(char.IsLetter(text, i)) {
+		if(char.IsLetter(text, i) || ch == '\'') {
 			do {
-				if(++i >= textLen) break;
+				if(++i >= stop) break;
 			} while(char.IsLetter(text, i));
 		} else if(char.IsNumber(text, i)) {
 			do {
-				if(++i >= textLen) break;
+				if(++i >= stop) break;
 			} while(char.IsNumber(text, i));
 		} else if(char.IsWhiteSpace(text, i)) {
 			do {
-				if(++i >= textLen) break;
+				if(++i >= stop) break;
 			} while(char.IsWhiteSpace(text, i));
 		} else {
 			do {
-				if(++i >= textLen) break;
-				if(char.IsLetterOrDigit(text, i)) break;
-				if(char.IsWhiteSpace(text, i)) break;
-			} while(true);
+				if(++i >= stop) break;
+			} while(!char.IsLetter(text, i) && !char.IsNumber(text, i) && !char.IsWhiteSpace(text, i));
 		}
 		return i;
 	}
