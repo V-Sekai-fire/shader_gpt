@@ -21,8 +21,8 @@ public class TensorTracer: TensorContext {
 		persistDict[name] = tex;
 		return tex;
 	}
-	public override RenderTexture GPUTensor(int size0, int size1, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int mipmap=0) {
-		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, mipmap:mipmap));
+	public override RenderTexture GPUTensor(int size0, int size1, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int mipmap=0, bool autoMips=true) {
+		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, mipmap:mipmap, autoMips:autoMips));
 		rtDesc[tex.GetInstanceID()] = tex.descriptor;
 		return tex;
 	}

@@ -55,7 +55,8 @@ public class TensorContext {
 		rtDict[name] = tex;
 		return tex;
 	}
-	public virtual RenderTexture GPUTensor(int size0, int size1, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int mipmap=0) {
+	public virtual RenderTexture GPUTensor(int size0, int size1, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int mipmap=0, bool autoMips=true) {
+		// NOTE: autoMips is ignored because deferred generation is not implemented
 		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, mipmap:mipmap));
 		Debug.Assert(!texSet.Contains(tex));
 		texSet.Add(tex);
@@ -122,7 +123,7 @@ public class TensorContext {
 	protected (int,int,TextureFormat) CPUTensorDescriptor(int size0, int size1, int size2=4, VertexAttributeFormat dtype=VertexAttributeFormat.Float32) {
 		return (size1, size0, dtypeToTexFormat[(dtype,size2)]);
 	}
-	protected RenderTextureDescriptor GPUTensorDescriptor(int size0, int size1, int size2=4, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int mipmap=0) {
+	protected RenderTextureDescriptor GPUTensorDescriptor(int size0, int size1, int size2=4, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int mipmap=0, bool autoMips=true) {
 		var desc = new RenderTextureDescriptor(size1, size0, dtypeToRTFormat[(dtype,size2)], 0);
 		while(mipmap > 0 && ((desc.width << mipmap) > 16384 || (desc.height << mipmap) > 16384))
 			mipmap --;
@@ -130,7 +131,7 @@ public class TensorContext {
 			desc.width <<= mipmap;
 			desc.height <<= mipmap;
 			desc.useMipMap = true;
-			desc.autoGenerateMips = true;
+			desc.autoGenerateMips = autoMips;
 			desc.mipCount = 1+mipmap;
 		}
 		return desc;

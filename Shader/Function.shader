@@ -94,10 +94,10 @@ float4 main(uint2 pos) {
 }
 float4 frag(float4 screenPos : SV_Position) : SV_Target {
 	uint2 pos = floor(screenPos.yx);
-	int2 off = _OutputOff.xy + int2(dot(_OutputOff.zw, _OffsetTex[uint2(0,0).yx].xy), 0);
-	if(!all(off <= pos && pos < off + _OutputDim.xy))
+	pos -= int2(dot(_OutputOff.zw, _OffsetTex[uint2(0,0).yx].xy) + _OutputOff.x, _OutputOff.y);
+	if(!all(0 <= int2(pos) && int2(pos) < int2(_OutputDim.xy)))
 		discard;
-	return main(pos-off);
+	return main(pos);
 }
 ENDHLSL
 	Pass {

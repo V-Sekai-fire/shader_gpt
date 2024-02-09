@@ -60,6 +60,7 @@ public class GPTGenerator : MonoBehaviour
 	[System.NonSerialized] public int[] inputTokens;
 	[System.NonSerialized] public int outputIndex;
 	[System.NonSerialized] public int outputToken;
+	private RenderTexture[] deferList = new RenderTexture[16];
 	void GenerateToken() {
 		// make sure the buffer stores the last token
 		if(0 < inputIndex && inputIndex <= inputTokens.Length) {
@@ -79,8 +80,17 @@ public class GPTGenerator : MonoBehaviour
 			matOutput.SetVector("_Weight", Vector4.one);
 			matOutput.SetVector("_Bias", new Vector4(0,inputIndex,0,0));
 		}
-		foreach(var mat in materials)
-			Graphics.Blit(null, (RenderTexture)mat.GetTexture("_OutputTex"), mat, 0);
+		var deferCount = 0;
+		foreach(var mat in materials) {
+			var rt = (RenderTexture)mat.GetTexture("_OutputTex");
+			// merge GenerateMips to reduce PS/CS switch
+			if(rt.useMipMap && !rt.autoGenerateMips)
+				deferList[deferCount++] = rt;
+			else
+				while(deferCount > 0)
+					deferList[--deferCount].GenerateMips();
+			Graphics.Blit(null, rt, mat, 0);
+		}
 
 		matSample.SetVector("_IndexRange", matSample.GetVector("_IndexRange") - deltaIndexRangeSample);
 		inputIndex++;

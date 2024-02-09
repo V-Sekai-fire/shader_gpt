@@ -81,8 +81,8 @@ public class Llama : GPTBase {
 
 		var mlp_states = nn.GroupNorm(hidden_states, parameters[$"{path}.post_attention_layernorm.weight"], null, config.rms_norm_eps, rmsNorm:true);
 		var gate = BatchRelease(nn.Linear(mlp_states, parameters[$"{path}.mlp.gate_proj.weight"]));
-		gate = BatchRelease(nn.Fusion(MarkRelease(gate), func:TensorNN.ActFn(config.hidden_act)));
 		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), parameters[$"{path}.mlp.up_proj.weight"]));
+		gate = BatchRelease(nn.Fusion(MarkRelease(gate), func:TensorNN.ActFn(config.hidden_act)));
 		mlp_states = BatchRelease(nn.Fusion(MarkRelease(mlp_states), mul:MarkRelease(gate)));
 		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), parameters[$"{path}.mlp.down_proj.weight"]));
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(mlp_states)));

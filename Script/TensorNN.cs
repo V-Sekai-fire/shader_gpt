@@ -9,7 +9,8 @@ public class TensorNN {
 	public Dictionary<string, Shader> kernels;
 	public Dictionary<Texture, Texture> quants = new Dictionary<Texture, Texture>();
 	public VertexAttributeFormat dataType = VertexAttributeFormat.Float32;
-	public int linearMipmap = 2;
+	public int linearMipmap = 2; // 3 has higher occupancy but similar gpu time
+	public int reduceSplit = 64;
 
 	public Texture Embedding(Texture input, Texture weight0, Texture weight1=null, bool transposeWeight=false) {
 		var output = ctx.GPUTensor(ctx.Size0(input), transposeWeight ? ctx.Size0(weight0??weight1)/4 : ctx.Size1(weight0??weight1), dtype:dataType);
@@ -41,7 +42,8 @@ public class TensorNN {
 		Debug.Assert(ctx.Size1(input)%heads == 0 && ctx.Size1(weight)%weightHeads == 0 && ctx.Size0(weight)%4 == 0 && heads%weightHeads == 0);
 		Debug.Assert(ctx.Size1(input)/heads == (transposeWeight ? ctx.Size0(weight)/4 : ctx.Size1(weight)/weightHeads));
 		var size1 = (transposeWeight ? ctx.Size1(weight)/weightHeads : ctx.Size0(weight)/4) * heads;
-		var output = ctx.GPUTensor(ctx.Size0(input), size1, dtype:dataType, mipmap:linearMipmap);
+		var output = ctx.GPUTensor(ctx.Size0(input), size1, dtype:dataType, mipmap:linearMipmap,
+			autoMips:weight is RenderTexture); // NOTE: not fully correct but works in common cases
 		var mat = ctx.Operator(kernels["Linear"]);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
@@ -58,7 +60,7 @@ public class TensorNN {
 	Texture _Reduce(Texture input, Keyword func, int groups=1, Vector4? indexRange=default, Texture rangeOffset=default, Matrix4x4? linear=default, bool inputReduced=false) {
 		Debug.Assert(ctx.Size1(input) % groups == 0);
 		var size1 = groups;
-		if(!inputReduced && ctx.Size1(input) / groups >= 256) {
+		if(!inputReduced && ctx.Size1(input) / groups >= reduceSplit) {
 			var n = ctx.Size1(input) / groups;
 			if(groups == 1)
 				size1 = Mathf.CeilToInt(Mathf.Sqrt(n));
