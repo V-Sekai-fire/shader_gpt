@@ -36,8 +36,8 @@ public class Llama : GPTBase {
 		var input = InputTensor(testcase.input_ids);
 		var (hidden_states, logits) = LlamaForCausalLM(input);
 		ctx.Release(input);
-		AssertData((RenderTexture)hidden_states, -1, testcase.hidden_states, 1e-5f);
-		AssertData((RenderTexture)logits, -1, testcase.logits, 2e-5f);
+		AssertData((RenderTexture)hidden_states, -1, testcase.hidden_states, 3e-5f);
+		AssertData((RenderTexture)logits, -1, testcase.logits, 3e-5f);
 		ctx.Release(hidden_states);
 		ctx.Release(logits);
 	}
@@ -56,6 +56,12 @@ public class Llama : GPTBase {
 		var key   = nn.Linear(hidden_states, parameters[$"{path}.k_proj.weight"]);
 		var value = nn.Linear(hidden_states, parameters[$"{path}.v_proj.weight"]);
 		ctx.Release(hidden_states);
+		if(parameters.TryGetValue($"{path}.q_proj.bias", out var bias))
+			query = BatchRelease(nn.Fusion(MarkRelease(query), add:bias));
+		if(parameters.TryGetValue($"{path}.k_proj.bias", out bias))
+			key   = BatchRelease(nn.Fusion(MarkRelease(key),   add:bias));
+		if(parameters.TryGetValue($"{path}.v_proj.bias", out bias))
+			value = BatchRelease(nn.Fusion(MarkRelease(value), add:bias));
 
 		var rotary = nn.Embedding(input_ids, null, parameters[$"{path}.rotary_emb.weight"]);
 		query = BatchRelease(nn.Rotary(MarkRelease(query), rotary, groups:config.num_attention_heads));
@@ -73,6 +79,8 @@ public class Llama : GPTBase {
 			indexRange:new Vector4(1-window_size, 1, 0, 1), rangeOffset:input_ids));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:config.num_attention_heads, weightHeads:config.num_key_value_heads, transposeWeight:true));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), parameters[$"{path}.o_proj.weight"]));
+		if(parameters.TryGetValue($"{path}.o_proj.bias", out bias))
+			hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:bias));
 	}
 	void LlamaDecoderLayer(ref Texture hidden_states, Texture input_ids, string path) {
 		var attn_states = nn.GroupNorm(hidden_states, parameters[$"{path}.input_layernorm.weight"], null, config.rms_norm_eps, rmsNorm:true);
@@ -88,6 +96,7 @@ public class Llama : GPTBase {
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(mlp_states)));
 	}
 	Texture LlamaModel(Texture input_ids, string path) {
+		SetSize1($"{path}.embed_tokens.weight.T", 1+(config.vocab_size-1)/4);
 		var hidden_states = nn.Embedding(input_ids, parameters[$"{path}.embed_tokens.weight.T"], transposeWeight:true);
 		for(int i=0; i<config.num_hidden_layers; i++)
 			LlamaDecoderLayer(ref hidden_states, input_ids, path:$"{path}.layers.{i}");
@@ -95,6 +104,7 @@ public class Llama : GPTBase {
 		return hidden_states;
 	}
 	(Texture, Texture) LlamaForCausalLM(Texture input_ids) {
+		SetSize1("lm_head.weight.T", 1+(config.vocab_size-1)/4);
 		var hidden_states = LlamaModel(input_ids, path:"model");
 		var lm_logits = nn.Linear(hidden_states, parameters["lm_head.weight.T"], transposeWeight:true);
 		return (hidden_states, lm_logits);

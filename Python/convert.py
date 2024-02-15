@@ -44,7 +44,7 @@ def quantize_unorm8(data, asym=True, bits=8, group=4, *, dstep=256, estep=2):
 	expo = pad_align(expo, [4, 1, 1]).reshape(-1, 4, expo.shape[1]).transpose(0,2,1)
 	return mant, expo.astype(np.int8).astype(np.uint8)
 
-def export_lm(model, folder, force_write=False, quantize=None):
+def export_lm(model, folder, force_write=False, quantize=None, max_positions=2048):
 	os.makedirs(folder, exist_ok=True)
 	print(folder/"config.json")
 	with open(folder/"config.json", "w") as f:
@@ -98,11 +98,11 @@ def export_lm(model, folder, force_write=False, quantize=None):
 				weight = torch.cat((
 					rotary_emb.cos_cached[..., :rotary_emb.cos_cached.shape[-1]//2],
 					rotary_emb.sin_cached[..., :rotary_emb.sin_cached.shape[-1]//2]), dim=-1)
-				state_dict[f"{prefix}.weight"] = weight[0,0]
+				state_dict[f"{prefix}.weight"] = weight[0,0,:max_positions]
 			else:
 				continue
 			del state_dict[name]
-	elif model_type == "llama" or model_type == "phi":
+	elif model_type in ["phi", "llama", "qwen2"]:
 		for name, data in list(state_dict.items()):
 			if name in ["model.embed_tokens.weight", "lm_head.weight"]:
 				state_dict[f"{name}.T"] = data.T
@@ -114,7 +114,7 @@ def export_lm(model, folder, force_write=False, quantize=None):
 				weight = torch.cat((
 					rotary_emb.cos_cached[..., :rotary_emb.cos_cached.shape[-1]//2],
 					rotary_emb.sin_cached[..., :rotary_emb.sin_cached.shape[-1]//2]), dim=-1)
-				state_dict[f"{prefix}.rotary_emb.weight"] = weight
+				state_dict[f"{prefix}.rotary_emb.weight"] = weight[:max_positions]
 				continue
 			else:
 				continue
@@ -132,6 +132,14 @@ def export_lm(model, folder, force_write=False, quantize=None):
 		else:
 			raise KeyError(f"unexpected {name} : {data.shape}")
 
+		# wrap wide texture
+		MAX_SIZE = 16384
+		wrap1 = 1+(data.shape[1]-1) // MAX_SIZE
+		if wrap1 > 1:
+			data = pad_align(data, (1, MAX_SIZE, 1))
+			data = data.reshape(-1, MAX_SIZE, data.shape[2])
+		assert data.shape[0] <= MAX_SIZE and data.shape[1] <= MAX_SIZE
+
 		quantizable = data.shape[0] % 4 == 0 and bool(re.search(r"(?<!rotary_emb)\.weight(\.T)?$", name))
 		if data.dtype == np.uint8:
 			if not force_write and (folder/f"{name}.png").exists():
@@ -144,7 +152,13 @@ def export_lm(model, folder, force_write=False, quantize=None):
 			(folder/f"{name}.exr").unlink(missing_ok=True)
 			(folder/f"{name}.q8.png").unlink(missing_ok=True)
 
+			# NOTE: quantize unwrapped
+			if wrap1 > 1:
+				data = data.reshape(-1, wrap1*MAX_SIZE, data.shape[2])
 			data, expo = quantize_unorm8(data)
+			if wrap1 > 1:
+				data = data.reshape(-1, MAX_SIZE, data.shape[2])
+				expo = expo.reshape(-1, MAX_SIZE, expo.shape[2])
 			imwrite(folder/f"{name}.exr", data[::-1])
 			imwrite(folder/f"{name}.q8.png", expo[::-1])
 		else:
@@ -172,12 +186,12 @@ def export_tokenizer(tokenizer, folder):
 			decode_token = lambda token: bytes((int(token[1:-1], 16),)) \
 				if model.byte_fallback and re.fullmatch(r"<0x[0-9A-F]{2}>", token) \
 				else tokenizer.decode([0, tokenizer.convert_tokens_to_ids(token)])[prefix_len:].encode()
-		elif type(pre_tokenizer).__name__ == "ByteLevel":
+		elif type(pre_tokenizer).__name__ == "ByteLevel" or type(fast_tokenizer.decoder).__name__ == "ByteLevel":
 			from transformers.models.gpt2.tokenization_gpt2 import bytes_to_unicode
 			byte_decoder = {c: b for b, c in bytes_to_unicode().items()}
 			decode_token = lambda token: bytes(byte_decoder[c] for c in token)
 		else:
-			raise NotImplementedError(f"pre_tokenizer {type(pre_tokenizer)} is not supported")
+			raise NotImplementedError(f"pre_tokenizer={type(pre_tokenizer)}, decoder={type(fast_tokenizer.decoder)} is not supported")
 	else:
 		raise NotImplementedError(f"model {type(model)} is not supported")
 

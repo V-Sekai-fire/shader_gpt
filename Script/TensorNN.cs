@@ -197,11 +197,11 @@ public class TensorNN {
 
 	void SetTensor(Material mat, string name, Texture tex) {
 		mat.SetTexture($"{name}Tex", tex);
-		mat.SetVector($"{name}Dim",  new Vector4(ctx.Size0(tex), ctx.Size1(tex), 1, ctx.Mipmap(tex)));
+		mat.SetVector($"{name}Dim",  new Vector4(ctx.Size0(tex), ctx.Size1(tex), ctx.Wrap1(tex), ctx.Mipmap(tex)));
 	}
 	void SetTensor(Material mat, string name, Texture tex, Vector2Int offset, Vector2Int size) {
 		SetTensor(mat, name, tex);
-		mat.SetVector($"{name}Dim",  new Vector4(size.x, size.y, 1, ctx.Mipmap(tex)));
+		mat.SetVector($"{name}Dim",  new Vector4(size.x, size.y, ctx.Wrap1(tex), ctx.Mipmap(tex)));
 		mat.SetVector($"{name}Off",  new Vector4(offset.x, offset.y, 0, 0));
 	}
 	void EnableOption(Material mat, Keyword keyword) {

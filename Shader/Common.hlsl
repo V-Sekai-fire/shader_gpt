@@ -1,3 +1,5 @@
+#pragma warning (error : 3206) // implicit truncation of vector type
+
 uint4 pcg4d(uint4 v) {
 	// https://jcgt.org/published/0009/03/02/
 	v = v * 1664525u + 1013904223u;
@@ -57,8 +59,34 @@ float4 dequantizeScale(float4 x, out float4 offset, bool enabled=true, float dst
 void vertQuad(float2 uv : TEXCOORD0, out float4 vertex : SV_Position) {
 	vertex = float4(uv*2-1, UNITY_NEAR_CLIP_VALUE, 1);
 }
-uint2 getGroupThreadIdAndSize(inout uint2 pos, uint lod) {
-	uint threadId = dot(pos & ((1<<lod)-1), uint2(1, 1<<lod));
-	pos >>= lod;
-	return uint2(threadId, (1<<lod)<<lod);
+uint2 getThreadId(float4 screenPos) {
+	return floor(screenPos.yx);
+}
+uint2 getThreadId(float4 screenPos, uint4 dim) {
+	uint2 pos = getThreadId(screenPos);
+	pos.y += pos.x % dim.z * 16384;
+	pos.x /= dim.z;
+	return pos;
+}
+uint4 getThreadIdAndGroupSize(float4 screenPos, uint4 dim) {
+	uint2 pos = getThreadId(screenPos);
+	uint threadId = dot(pos & ((1<<dim.w)-1), uint2(1, 1<<dim.w));
+	uint groupSize = (1<<dim.w)<<dim.w;
+	pos >>= dim.w;
+	pos.y += pos.x % dim.z * 16384;
+	pos.x /= dim.z;
+	return uint4(pos, threadId, groupSize);
+}
+
+float4 loadTensor(Texture2D<float4> tex, uint i, uint j, uint lod=0) {
+	return tex.mips[lod][uint2(j,i)];
+}
+float4 loadTensor(Texture2D<float4> tex, uint i, uint j, uint4 dim) {
+	return tex.mips[dim.w][uint2(j%16384,i*dim.z+j/16384)];
+}
+float4 loadTensor(Texture2D<float4> tex, uint2 ij) {
+	return loadTensor(tex, ij.x, ij.y);
+}
+float4 loadTensor(Texture2D<float4> tex, uint2 ij, uint4 dim) {
+	return loadTensor(tex, ij.x, ij.y, dim);
 }

@@ -3,6 +3,7 @@ Properties {
 	_OutputDim("_OutputDim", Vector) = (1, 1, 1, 0)
 	_InputDim ("_InputDim",  Vector) = (1, 1, 1, 0)
 	_WeightDim("_WeightDim", Vector) = (1, 1, 1, 0)
+	_ScaleDim ("_ScaleDim",  Vector) = (1, 1, 1, 0)
 	[HideInInspector]_OutputTex("_OutputTex",2D) = "black" {}
 	[NoScaleOffset] _InputTex ("_InputTex",  2D) = "black" {}
 	[NoScaleOffset] _WeightTex("_WeightTex", 2D) = "black" {}
@@ -17,7 +18,7 @@ HLSLINCLUDE
 uint4 _OutputDim;
 Texture2D<float4> _InputTex;  uint4 _InputDim;
 Texture2D<float4> _WeightTex; uint4 _WeightDim;
-Texture2D<float4> _ScaleTex;
+Texture2D<float4> _ScaleTex;  uint4 _ScaleDim;
 
 float4 main(uint2 pos, uint threadId, uint groupSize) {
 	// torch.nn.functional.linear(bias=None) with multi-head support
@@ -37,33 +38,33 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 	uint h = pos.y / J;
 	float4 O = 0;
 	for(uint k=threadId; k<K; k+=groupSize) {
-		float4 X = _InputTex.mips[_InputDim.w][uint2(pos.x,h*K+k).yx];
+		float4 X = loadTensor(_InputTex, pos.x, h*K+k, _InputDim.w);
 		#ifdef WEIGHT_TRANSPOSED
-			float4 offset, scale = dequantizeScale(_ScaleTex[uint2(k,h/D*J+j).yx], offset);
+			// NOTE: wide tensor is only supported on transposed weight to reduce overhead
+			float4 offset, scale = dequantizeScale(loadTensor(_ScaleTex, k, h/D*J+j, _ScaleDim), offset);
 			O += mul(scale * X, float4x4(
-				dequantizeWeight(_WeightTex.mips[_WeightDim.w][uint2(k*4+0,h/D*J+j).yx], offset[0]),
-				dequantizeWeight(_WeightTex.mips[_WeightDim.w][uint2(k*4+1,h/D*J+j).yx], offset[1]),
-				dequantizeWeight(_WeightTex.mips[_WeightDim.w][uint2(k*4+2,h/D*J+j).yx], offset[2]),
-				dequantizeWeight(_WeightTex.mips[_WeightDim.w][uint2(k*4+3,h/D*J+j).yx], offset[3])));
+				dequantizeWeight(loadTensor(_WeightTex, k*4+0, h/D*J+j, _WeightDim), offset[0]),
+				dequantizeWeight(loadTensor(_WeightTex, k*4+1, h/D*J+j, _WeightDim), offset[1]),
+				dequantizeWeight(loadTensor(_WeightTex, k*4+2, h/D*J+j, _WeightDim), offset[2]),
+				dequantizeWeight(loadTensor(_WeightTex, k*4+3, h/D*J+j, _WeightDim), offset[3])));
 		#else
 			// tested: error rate of per-out-channel block q8 is 10%~50% smaller than per-input-channel
 			// awq does this too: github.com/mit-han-lab/llm-awq/blob/main/awq/kernels/csrc/quantization/gemv_cuda.cu
-			float4 offset, scale = dequantizeScale(_ScaleTex[uint2(j,h/D*K+k).yx], offset);
+			float4 offset, scale = dequantizeScale(loadTensor(_ScaleTex, j, h/D*K+k, _ScaleDim.w), offset);
 			O += scale * mul(float4x4(
-				dequantizeWeight(_WeightTex.mips[_WeightDim.w][uint2(j*4+0,h/D*K+k).yx], offset[0]),
-				dequantizeWeight(_WeightTex.mips[_WeightDim.w][uint2(j*4+1,h/D*K+k).yx], offset[1]),
-				dequantizeWeight(_WeightTex.mips[_WeightDim.w][uint2(j*4+2,h/D*K+k).yx], offset[2]),
-				dequantizeWeight(_WeightTex.mips[_WeightDim.w][uint2(j*4+3,h/D*K+k).yx], offset[3])), X);
+				dequantizeWeight(loadTensor(_WeightTex, j*4+0, h/D*K+k, _WeightDim.w), offset[0]),
+				dequantizeWeight(loadTensor(_WeightTex, j*4+1, h/D*K+k, _WeightDim.w), offset[1]),
+				dequantizeWeight(loadTensor(_WeightTex, j*4+2, h/D*K+k, _WeightDim.w), offset[2]),
+				dequantizeWeight(loadTensor(_WeightTex, j*4+3, h/D*K+k, _WeightDim.w), offset[3])), X);
 		#endif
 	}
 	return O;
 }
 float4 frag(float4 screenPos : SV_Position) : SV_Target {
-	uint2 pos = floor(screenPos.yx);
-	uint2 group = getGroupThreadIdAndSize(pos, _OutputDim.w);
-	if(any(pos >= _OutputDim.xy))
+	uint4 pos = getThreadIdAndGroupSize(screenPos, _OutputDim);
+	if(any(pos.xy >= _OutputDim.xy))
 		discard;
-	return main(pos, group.x, group.y) * group.y;
+	return main(pos.xy, pos.z, pos.w) * pos.w;
 }
 ENDHLSL
 	Pass {

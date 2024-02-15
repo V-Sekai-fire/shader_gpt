@@ -139,7 +139,10 @@ public abstract class GPTBase : MonoBehaviour {
 		return x;
 	}
 	protected void AssertData(RenderTexture rt, int row, float[] value, float eps) {
-		var offset = (row>=0 ? row : ctx.Size0(rt)+row) * ctx.Size1(rt) * 4;
+		var col = ctx.Size1(rt) * 4;
+		if(col > 65536)
+			col += (-col) & 65535;
+		var offset = (row>=0 ? row : ctx.Size0(rt)+row) * col;
 		var data = ctx.GetData(rt);
 		var errorL1 = 0f;
 		var errorL2 = 0f;
@@ -156,6 +159,11 @@ public abstract class GPTBase : MonoBehaviour {
 		Debug.Assert(Mathf.Abs(errorLi) < eps);
 		if(Mathf.Abs(errorLi) >= eps)
 			ctx.DebugTensor(rt);
+	}
+	protected void SetSize1(string name, int size1) {
+		ctx.SetSize1(parameters[name], size1);
+		if(parameters.TryGetValue($"{name}.q8", out var quantTex))
+			ctx.SetSize1(quantTex, size1);
 	}
 
 	[System.Serializable]

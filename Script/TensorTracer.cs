@@ -19,17 +19,20 @@ public class TensorTracer: TensorContext {
 		var tex = new RenderTexture(GPUTensorDescriptor(size0, size1, dtype:dtype, mipmap:mipmap));
 		rtDesc[tex.GetInstanceID()] = tex.descriptor;
 		persistDict[name] = tex;
+		SetSize1(tex, size1);
 		return tex;
 	}
 	public override RenderTexture GPUTensor(int size0, int size1, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int mipmap=0, bool autoMips=true) {
 		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, mipmap:mipmap, autoMips:autoMips));
 		rtDesc[tex.GetInstanceID()] = tex.descriptor;
+		SetSize1(tex, size1);
 		return tex;
 	}
 	public override Texture2D CPUTensor(int size0, int size1, int size2=4, VertexAttributeFormat dtype=VertexAttributeFormat.Float32) {
 		var (width, height, textureFormat) = CPUTensorDescriptor(size0, size1, dtype:dtype);
 		var tex = new Texture2D(width, height, textureFormat, mipChain:false, linear:true);
 		texDesc[tex.GetInstanceID()] = (width, height, textureFormat);
+		SetSize1(tex, size1);
 		return tex;
 	}
 	public override void Release(Texture tex) {

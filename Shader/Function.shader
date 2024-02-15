@@ -15,7 +15,7 @@ Properties {
 	[NoScaleOffset] _RotaryTex("_RotaryTex", 2D) = "black" {}
 	_InputOff ("_InputOff",  Vector) = (0, 0, 0, 0)
 	_OutputOff("_OutputOff", Vector) = (0, 0, 0, 0)
-	_IndexRange("_IndexRange", Vector) = (0, 65536, 0, 0) // maxTextureSize*4
+	_IndexRange("_IndexRange", Vector) = (0, 1048576, 0, 0)
 	_Eps("_Eps", Float) = 0
 	_Weight("_Weight", Vector) = (1, 1, 1, 1)
 	_Bias  ("_Bias",   Vector) = (0, 0, 0, 0)
@@ -26,7 +26,7 @@ HLSLINCLUDE
 #include "UnityCG.cginc"
 #include "Common.hlsl"
 
-uint2 _OutputDim;
+uint4 _OutputDim;
 Texture2D<float4> _InputTex;  uint4 _InputDim;
 Texture2D<float4> _ReduceTex; uint2 _ReduceDim;
 Texture2D<float4> _OffsetTex;
@@ -43,11 +43,11 @@ uniform float4 _Bias;
 float4 main(uint2 pos) {
 	// output[i,j] = func(input[i,j])
 
-	float4 X = _InputTex.mips[_InputDim.w][uint2(_InputOff.xy+pos.xy).yx];
-	float4 R = _ReduceTex[uint2(pos.xy*_ReduceDim.xy/_InputDim.xy).yx];
+	float4 X = loadTensor(_InputTex, _InputOff+pos, _InputDim);
+	float4 R = loadTensor(_ReduceTex, pos.xy*_ReduceDim.xy/_InputDim.xy);
 	float4 O = X;
 	int4 index = pos.y%(_InputDim.y/_ReduceDim.y)*4 + uint4(0,1,2,3);
-	int2 range = _IndexRange.xy + dot(_IndexRange.zw, _OffsetTex[uint2(pos.x,0).yx].xy);
+	int2 range = _IndexRange.xy + dot(_IndexRange.zw, loadTensor(_OffsetTex, pos.x, 0).xy);
 	bool4 mask = range.x <= index && index < range.y;
 	#if defined(FUNC_GROUPNORM)
 		O = mask ? (X*R[0]-R[1]) * rsqrt(_Eps*(R[0]*R[0]) + max(0, R[2]*R[0]-R[1]*R[1])) : 0; // R is sum of powers
@@ -63,25 +63,25 @@ float4 main(uint2 pos) {
 		uint dim = _RotaryDim.y/2;
 		if(j < dim) {
 			float4 reX = X;
-			float4 imX = _InputTex.mips[_InputDim.w][uint2(_InputOff.xy+uint2(pos.x,pos.y+dim)).yx];
-			float4 reY = _RotaryTex[uint2(pos.x,j).yx];
-			float4 imY = _RotaryTex[uint2(pos.x,j+dim).yx];
+			float4 imX = loadTensor(_InputTex, _InputOff+pos+uint2(0,dim), _InputDim);
+			float4 reY = loadTensor(_RotaryTex, pos.x, j);
+			float4 imY = loadTensor(_RotaryTex, pos.x, j+dim);
 			O = reX*reY - imX*imY; // real part
 		} else if(j < dim*2) {
 			float4 imX = X;
-			float4 reX = _InputTex.mips[_InputDim.w][uint2(_InputOff.xy+uint2(pos.x,pos.y-dim)).yx];
-			float4 imY = _RotaryTex[uint2(pos.x,j).yx];
-			float4 reY = _RotaryTex[uint2(pos.x,j-dim).yx];
+			float4 reX = loadTensor(_InputTex, _InputOff+pos-uint2(0,dim), _InputDim);
+			float4 imY = loadTensor(_RotaryTex, pos.x, j);
+			float4 reY = loadTensor(_RotaryTex, pos.x, j-dim);
 			O = reX*imY + imX*reY; // imaginary part
 		}
 	#endif
 
 	O *= _Weight;
 	if(_WeightDim.x)
-		O *= _WeightTex.mips[_WeightDim.w][uint2(pos.xy*_WeightDim.xy/_InputDim.xy).yx];
+		O *= loadTensor(_WeightTex, pos.xy*_WeightDim.xy/_InputDim.xy, _WeightDim);
 	O += _Bias;
 	if(_BiasDim.x)
-		O += _BiasTex.mips[_BiasDim.w][uint2(pos.xy*_BiasDim.xy/_InputDim.xy).yx];
+		O += loadTensor(_BiasTex, pos.xy*_BiasDim.xy/_InputDim.xy, _BiasDim);
 
 	#if defined(FUNC_GELU)
 		O = gelu(O);
@@ -93,8 +93,8 @@ float4 main(uint2 pos) {
 	return O;
 }
 float4 frag(float4 screenPos : SV_Position) : SV_Target {
-	uint2 pos = floor(screenPos.yx);
-	pos -= int2(dot(_OutputOff.zw, _OffsetTex[uint2(0,0).yx].xy) + _OutputOff.x, _OutputOff.y);
+	uint2 pos = getThreadId(screenPos, _OutputDim);
+	pos -= int2(dot(_OutputOff.zw, loadTensor(_OffsetTex, 0, 0).xy) + _OutputOff.x, _OutputOff.y);
 	if(!all(0 <= int2(pos) && int2(pos) < int2(_OutputDim.xy)))
 		discard;
 	return main(pos);

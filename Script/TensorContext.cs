@@ -8,11 +8,15 @@ using UnityEngine.Experimental.Rendering;
 namespace ShaderGPT {
 public class TensorContext {
 	// tensor properties and i/o
-	public int Size0(Texture tex) => tex.height >> (tex.mipmapCount-1);
-	public int Size1(Texture tex) => tex.width >> (tex.mipmapCount-1);
+	public int Size0(Texture tex) => (tex.height >> (tex.mipmapCount-1)) / Wrap1(tex);
+	public int Size1(Texture tex) => texSize1.TryGetValue(tex.GetInstanceID(), out var size1) ? size1 : tex.width >> (tex.mipmapCount-1);
+	public int Wrap1(Texture tex) => texSize1.TryGetValue(tex.GetInstanceID(), out var size1) ? 1+(size1-1)/maxTextureSize : 1;
 	public int Mipmap(Texture tex) => (tex.mipmapCount-1);
 	public Vector2Int Size(Texture tex) => new Vector2Int(Size0(tex), Size1(tex));
 	public VertexAttributeFormat DType(Texture tex) => graphicsFormatToDType[tex.graphicsFormat];
+	public void SetSize1(Texture tex, int size1) {
+		texSize1[tex.GetInstanceID()] = size1;
+	}
 	public NativeArray<float> GetData(Texture2D tex) {
 		return tex.GetRawTextureData<float>();
 	}
@@ -20,7 +24,7 @@ public class TensorContext {
 		tex.SetPixelData(data, 0, 0);
 		tex.Apply(updateMipmaps:false, makeNoLongerReadable:false);
 	}
-	public Texture Copy(Texture2D output, RenderTexture input, Vector2Int size, Vector2Int outputOffset=default, Vector2Int inputOffset=default) {
+	Texture Copy(Texture2D output, RenderTexture input) {
 		var mipmap = Mipmap(input);
 		if(mipmap != 0) {
 			// copy last mip level for ReadPixels
@@ -30,18 +34,19 @@ public class TensorContext {
 			desc.useMipMap = false;
 			var clone = RenderTexture.GetTemporary(desc);
 			Graphics.CopyTexture(input, 0, mipmap, clone, 0, 0);
-			Copy(output, clone, size, outputOffset:outputOffset, inputOffset:inputOffset);
+			Copy(output, clone);
 			RenderTexture.ReleaseTemporary(clone);
 			return output;
 		}
 		var active = RenderTexture.active;
 		RenderTexture.active = input;
-		output.ReadPixels(new Rect(inputOffset.y, inputOffset.x, size.y, size.x), outputOffset.y, outputOffset.x);
+		output.ReadPixels(new Rect(0, 0, output.width, output.height), 0, 0);
 		RenderTexture.active = active;
 		return output;
 	}
 
 	// tensor creation
+	Dictionary<int,int> texSize1 = new Dictionary<int,int>();
 	HashSet<Texture> texSet = new HashSet<Texture>();
 	Dictionary<string,RenderTexture> rtDict = new Dictionary<string,RenderTexture>();
 	public virtual RenderTexture PersistentGPUTensor(string name, int size0, int size1, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int mipmap=0) {
@@ -53,6 +58,7 @@ public class TensorContext {
 		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, mipmap:mipmap));
 		Debug.Assert(!texSet.Contains(tex));
 		rtDict[name] = tex;
+		SetSize1(tex, size1);
 		return tex;
 	}
 	public virtual RenderTexture GPUTensor(int size0, int size1, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int mipmap=0, bool autoMips=true) {
@@ -60,6 +66,7 @@ public class TensorContext {
 		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, mipmap:mipmap));
 		Debug.Assert(!texSet.Contains(tex));
 		texSet.Add(tex);
+		SetSize1(tex, size1);
 		return tex;
 	}
 	public virtual Texture2D CPUTensor(int size0, int size1, int size2=4, VertexAttributeFormat dtype=VertexAttributeFormat.Float32) {
@@ -67,6 +74,7 @@ public class TensorContext {
 		var tex = new Texture2D(width, height, textureFormat, mipChain:false, linear:true);
 		Debug.Assert(!texSet.Contains(tex));
 		texSet.Add(tex);
+		SetSize1(tex, size1);
 		return tex;
 	}
 	public virtual void Release(Texture tex) {
@@ -100,7 +108,7 @@ public class TensorContext {
 	}
 	public float[] GetData(RenderTexture input) {
 		var clone = CPUTensor(Size0(input), Size1(input), dtype:DType(input));
-		Copy(clone, (RenderTexture)input, new Vector2Int(Size0(input), Size1(input)));
+		Copy(clone, (RenderTexture)input);
 		var output = GetData(clone).ToArray();
 		Release(clone);
 		return output;
@@ -116,16 +124,19 @@ public class TensorContext {
 	}
 	void DebugTensor(NativeArray<float> data, int row, int col) {
 		Debug.Log($"shape: {row}, {col}");
+		if(col > 65536)
+			col += (-col) & 65535;
 		for(int i=0; i<row; i++)
 			Debug.Log(string.Join(", ", new NativeSlice<float>(data, i*col, col).Select(x => x.ToString("F4"))));
 	}
 
+	const int maxTextureSize = 16384;
 	protected (int,int,TextureFormat) CPUTensorDescriptor(int size0, int size1, int size2=4, VertexAttributeFormat dtype=VertexAttributeFormat.Float32) {
-		return (size1, size0, dtypeToTexFormat[(dtype,size2)]);
+		return (Mathf.Min(size1, maxTextureSize), size0*(1+(size1-1)/maxTextureSize), dtypeToTexFormat[(dtype,size2)]);
 	}
 	protected RenderTextureDescriptor GPUTensorDescriptor(int size0, int size1, int size2=4, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int mipmap=0, bool autoMips=true) {
-		var desc = new RenderTextureDescriptor(size1, size0, dtypeToRTFormat[(dtype,size2)], 0);
-		while(mipmap > 0 && ((desc.width << mipmap) > 16384 || (desc.height << mipmap) > 16384))
+		var desc = new RenderTextureDescriptor(Mathf.Min(size1, maxTextureSize), size0*(1+(size1-1)/maxTextureSize), dtypeToRTFormat[(dtype,size2)], 0);
+		while(mipmap > 0 && ((desc.width << mipmap) > maxTextureSize || (desc.height << mipmap) > maxTextureSize))
 			mipmap --;
 		if(mipmap > 0) {
 			desc.width <<= mipmap;
