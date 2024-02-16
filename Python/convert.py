@@ -44,35 +44,46 @@ def quantize_unorm8(data, asym=True, bits=8, group=4, *, dstep=256, estep=2):
 	expo = pad_align(expo, [4, 1, 1]).reshape(-1, 4, expo.shape[1]).transpose(0,2,1)
 	return mant, expo.astype(np.int8).astype(np.uint8)
 
-def export_lm(model, folder, force_write=False, quantize=None, max_positions=2048):
+def export_lm(model, folder, force_write=False, quantize=None, max_positions=4096):
 	os.makedirs(folder, exist_ok=True)
 	print(folder/"config.json")
 	with open(folder/"config.json", "w") as f:
 		json.dump(model.config.to_dict(), f, indent=2, sort_keys=True)
 
-	model_type = model.config.model_type
 	state_dict = dict(model.state_dict())
-	if model_type == "gpt_neo" or model_type == "gpt2":
+	for name, layer in model.named_modules():
+		# RotaryEmbedding => Linear
+		if hasattr(layer, "cos_cached"):
+			weight = torch.cat((
+				layer.cos_cached[..., :layer.cos_cached.shape[-1]//2],
+				layer.sin_cached[..., :layer.sin_cached.shape[-1]//2]), dim=-1)
+			state_dict[f"{name}.weight"] = weight[:max_positions]
+		# QuantLinear => Linear
+		elif hasattr(layer, "qweight"):
+			layer.bias, bias = None, layer.bias
+			weight = layer(torch.eye(layer.infeatures, dtype=torch.float16, device=model.device)).transpose(1,0)
+			layer.bias = bias
+			state_dict[f"{name}.weight"] = weight
+			for key in ("qweight", "qzeros", "scales", "g_idx"):
+				del state_dict[f"{name}.{key}"]
+
+	# model-specific transform
+	model_type = model.config.model_type
+	if model_type in ["gpt2", "gpt_neo"]:
 		for name, data in list(state_dict.items()):
 			if name in ["transformer.wte.weight", "transformer.wpe.weight", "lm_head.weight"]:
 				if name == "lm_head.weight" and torch.allclose(data, model.state_dict()["transformer.wte.weight"]):
 					pass # skip duplicate weights to save space
 				else:
 					state_dict[f"{name}.T"] = data.T
-			elif m := re.fullmatch(r"transformer[.]h[.](\d+)[.]attn[.]c_(attn[.](weight|bias))", name):
-				prefix = name[:-len(m[2])]
-				norm_factor = 1 / (model.transformer.h[int(m[1])].attn.head_dim ** 0.5)
-				data = (data.transpose(0,1) if m[3] == "weight" else data).chunk(3, dim=0)
-				if m[3] == "weight":
-					state_dict[f"{prefix}query.weight"] = data[0] * norm_factor
-					state_dict[f"{prefix  }key.weight"] = data[1]
-					state_dict[f"{prefix}value.weight"] = data[2]
-				else:
-					state_dict[f"{prefix}query.bias"] = data[0] * norm_factor
-					state_dict[f"{prefix  }key.bias"] = data[1]
-					state_dict[f"{prefix}value.bias"] = data[2]
+			elif m := re.fullmatch(r"(.*[.]\d+[.]attn)[.]c_attn[.](weight|bias)", name):
+				view = (data.transpose(0,1) if m[2] == "weight" else data).chunk(3, dim=0)
+				state_dict[f"{m[1]}.c_query.{m[2]}"] = view[0]
+				state_dict[f"{m[1]}.c_key.{  m[2]}"] = view[1]
+				state_dict[f"{m[1]}.c_value.{m[2]}"] = view[2]
 			else:
 				if model_type == "gpt2" and re.search(r"(c_fc|c_proj)[.]weight$", name):
+					# Conv1D => Linear
 					state_dict[name] = data.transpose(0,1)
 				continue
 			del state_dict[name]
@@ -80,25 +91,11 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=204
 		for name, data in list(state_dict.items()):
 			if name in ["gpt_neox.embed_in.weight", "embed_out.weight"]:
 				state_dict[f"{name}.T"] = data.T
-			elif m := re.fullmatch(r"gpt_neox[.]layers[.](\d+)[.]attention([.]query_key_value[.](weight|bias))", name):
-				prefix = name[:-len(m[2])]
-				norm_factor = model.gpt_neox.layers[int(m[1])].attention.norm_factor
-				data = data.view(model.config.num_attention_heads, 3, -1)
-				if m[3] == "weight":
-					state_dict[f"{prefix}.query.weight"] = data[:, 0].reshape(model.config.hidden_size, -1) * norm_factor
-					state_dict[f"{prefix  }.key.weight"] = data[:, 1].reshape(model.config.hidden_size, -1)
-					state_dict[f"{prefix}.value.weight"] = data[:, 2].reshape(model.config.hidden_size, -1)
-				else:
-					state_dict[f"{prefix}.query.bias"] = data[:, 0].reshape(model.config.hidden_size) * norm_factor
-					state_dict[f"{prefix  }.key.bias"] = data[:, 1].reshape(model.config.hidden_size)
-					state_dict[f"{prefix}.value.bias"] = data[:, 2].reshape(model.config.hidden_size)
-			elif m := re.fullmatch(r"gpt_neox[.]layers[.](\d+)[.]attention[.]rotary_emb([.]inv_freq)", name):
-				prefix = name[:-len(m[2])]
-				rotary_emb = model.gpt_neox.layers[int(m[1])].attention.rotary_emb
-				weight = torch.cat((
-					rotary_emb.cos_cached[..., :rotary_emb.cos_cached.shape[-1]//2],
-					rotary_emb.sin_cached[..., :rotary_emb.sin_cached.shape[-1]//2]), dim=-1)
-				state_dict[f"{prefix}.weight"] = weight[0,0,:max_positions]
+			elif m := re.fullmatch(r"(.*[.]\d+[.]attention)[.]query_key_value[.](weight|bias)", name):
+				view = data.view(model.config.num_attention_heads, 3, -1)
+				state_dict[f"{m[1]}.query.{m[2]}"] = view[:, 0].reshape(model.config.hidden_size, *data.shape[1:])
+				state_dict[f"{m[1]}.key.{  m[2]}"] = view[:, 1].reshape(model.config.hidden_size, *data.shape[1:])
+				state_dict[f"{m[1]}.value.{m[2]}"] = view[:, 2].reshape(model.config.hidden_size, *data.shape[1:])
 			else:
 				continue
 			del state_dict[name]
@@ -106,24 +103,15 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=204
 		for name, data in list(state_dict.items()):
 			if name in ["model.embed_tokens.weight", "lm_head.weight"]:
 				state_dict[f"{name}.T"] = data.T
-			elif m := re.fullmatch(r"model[.]layers[.](\d+)[.]self_attn([.]q_proj[.](weight|bias))", name):
-				prefix = name[:-len(m[2])]
-				self_attn = model.model.layers[int(m[1])].self_attn
-				rotary_emb = self_attn.rotary_emb
-				state_dict[name] = data / math.sqrt(self_attn.head_dim)
-				weight = torch.cat((
-					rotary_emb.cos_cached[..., :rotary_emb.cos_cached.shape[-1]//2],
-					rotary_emb.sin_cached[..., :rotary_emb.sin_cached.shape[-1]//2]), dim=-1)
-				state_dict[f"{prefix}.rotary_emb.weight"] = weight[:max_positions]
-				continue
 			else:
 				continue
 			del state_dict[name]
 	else:
 		raise NotImplementedError(f"{model_type=}")
 
-	for name, data in state_dict.items():
-		data = data.cpu().numpy()
+	for name in list(state_dict.keys()):
+		# reduce memory use
+		data = state_dict.pop(name).cpu().numpy()
 		print("\t", name, data.shape, data.dtype)
 		if re.search(r"\.weight(\.T)?$", name) and len(data.shape) == 2:
 			data = pad_align(data, [1, 4]).reshape(data.shape[0], -1, 4)
@@ -249,15 +237,17 @@ def main():
 	parser.add_argument('folder', help='save path. for example: ../Model/')
 	parser.add_argument('--force', action='store_true')
 	parser.add_argument('--quantize', type=float)
+	parser.add_argument('--device', type=str)
 	args = parser.parse_args()
 
 	folder = Path(args.folder)
 	if re.search(r"[/\\]$", args.folder):
 		folder /= Path(args.model).name
 	print(f"convert: {args.model} => {folder}")
-	model = AutoModelForCausalLM.from_pretrained(args.model, trust_remote_code=True)
+	model = AutoModelForCausalLM.from_pretrained(args.model, device_map=args.device or None)
 	tokenizer = AutoTokenizer.from_pretrained(args.model)
 	quantize = (lambda name, shape: np.prod(shape) >= args.quantize*1024*1024) if args.quantize else None
+	print(f"model: {type(model)}")
 	export_lm(model, folder, force_write=bool(args.force), quantize=quantize)
 	export_tokenizer(tokenizer, folder)
 	export_testcase(model, tokenizer, folder, force_write=bool(args.force))

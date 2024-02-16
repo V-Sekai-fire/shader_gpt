@@ -36,8 +36,8 @@ public class GPTNeo : GPTBase {
 		var input = InputTensor(testcase.input_ids);
 		var (hidden_states, logits) = GPTNeoForCausalLM(input);
 		ctx.Release(input);
-		AssertData((RenderTexture)hidden_states, -1, testcase.hidden_states, 3e-4f);
-		AssertData((RenderTexture)logits, -1, testcase.logits, 2e-3f);
+		AssertData((RenderTexture)hidden_states, -1, testcase.hidden_states, 5e-5f);
+		AssertData((RenderTexture)logits, -1, testcase.logits, 2e-4f);
 		ctx.Release(hidden_states);
 		ctx.Release(logits);
 	}

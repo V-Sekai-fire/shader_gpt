@@ -36,7 +36,7 @@ public class TensorNN {
 		ctx.Blit(output, mat);
 		return output;
 	}
-	public Texture Linear(Texture input, Texture weight, bool transposeWeight=false, int heads=1, int weightHeads=0) {
+	public Texture Linear(Texture input, Texture weight, bool transposeWeight=false, int heads=1, int weightHeads=0, float scale=1f) {
 		if(weightHeads == 0)
 			weightHeads = heads;
 		Debug.Assert(ctx.Size1(input)%heads == 0 && ctx.Size1(weight)%weightHeads == 0 && ctx.Size0(weight)%4 == 0 && heads%weightHeads == 0);
@@ -54,6 +54,7 @@ public class TensorNN {
 		}
 		if(transposeWeight)
 			EnableOption(mat, Keyword.WEIGHT_TRANSPOSED);
+		mat.SetFloat("_Scale", scale);
 		ctx.Blit(output, mat);
 		return output;
 	}

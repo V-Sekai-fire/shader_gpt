@@ -35,8 +35,8 @@ public class GPT2 : GPTBase {
 		var input = InputTensor(testcase.input_ids);
 		var (hidden_states, logits) = GPT2LMHeadModel(input);
 		ctx.Release(input);
-		AssertData((RenderTexture)hidden_states, -1, testcase.hidden_states, 3e-4f);
-		AssertData((RenderTexture)logits, -1, testcase.logits, 2e-3f);
+		AssertData((RenderTexture)hidden_states, -1, testcase.hidden_states, 8e-5f);
+		AssertData((RenderTexture)logits, -1, testcase.logits, 2e-4f);
 		ctx.Release(hidden_states);
 		ctx.Release(logits);
 	}
@@ -65,7 +65,8 @@ public class GPT2 : GPTBase {
 		BatchRelease(nn.Scatter(values, input_ids, MarkRelease(value), indexMask:new Vector2(0,1)));
 
 		var window_size = config.n_positions;
-		var attn_scores = BatchRelease(nn.Linear(MarkRelease(query), keys, heads:config.n_head));
+		var norm_factor = 1f / Mathf.Sqrt(ctx.Size1(query)*4 / config.n_head);
+		var attn_scores = BatchRelease(nn.Linear(MarkRelease(query), keys, heads:config.n_head, scale:norm_factor));
 		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores), groups:config.n_head,
 			indexRange:new Vector4(1-window_size, 1, 0, 1), rangeOffset:input_ids));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:config.n_head, transposeWeight:true));

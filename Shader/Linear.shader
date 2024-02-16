@@ -8,6 +8,7 @@ Properties {
 	[NoScaleOffset] _InputTex ("_InputTex",  2D) = "black" {}
 	[NoScaleOffset] _WeightTex("_WeightTex", 2D) = "black" {}
 	[NoScaleOffset] _ScaleTex ("_ScaleTex",  2D) = "black" {}
+	_Scale("_Scale", Float) = 1
 }
 SubShader {
 	Tags { "PreviewType"="Plane" } // prevent freezing Unity editor
@@ -19,6 +20,7 @@ uint4 _OutputDim;
 Texture2D<float4> _InputTex;  uint4 _InputDim;
 Texture2D<float4> _WeightTex; uint4 _WeightDim;
 Texture2D<float4> _ScaleTex;  uint4 _ScaleDim;
+uniform float _Scale;
 
 float4 main(uint2 pos, uint threadId, uint groupSize) {
 	// torch.nn.functional.linear(bias=None) with multi-head support
@@ -58,6 +60,7 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 				dequantizeWeight(loadTensor(_WeightTex, j*4+3, h/D*K+k, _WeightDim.w), offset[3])), X);
 		#endif
 	}
+	O *= _Scale;
 	return O;
 }
 float4 frag(float4 screenPos : SV_Position) : SV_Target {

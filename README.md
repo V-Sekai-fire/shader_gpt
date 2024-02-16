@@ -10,6 +10,7 @@ The following architectures are implemented:
 * [GPT-NeoX](https://huggingface.co/docs/transformers/main/en/model_doc/gpt_neox)
 * [Phi](https://huggingface.co/docs/transformers/main/en/model_doc/phi)
 * [LLaMA](https://huggingface.co/docs/transformers/main/en/model_doc/llama)
+* [Qwen2](https://huggingface.co/docs/transformers/main/en/model_doc/qwen2)
 
 The following models are tested:
 * [TinyStories-33M](https://huggingface.co/roneneldan/TinyStories-33M) (GPT-Neo)
@@ -19,6 +20,7 @@ The following models are tested:
 * [phi-1_5](https://huggingface.co/microsoft/phi-1_5) (Phi)
 * [TinyLlama-1.1B-orca-v1.0](https://huggingface.co/sreeramajay/TinyLlama-1.1B-orca-v1.0) (LLaMA)
 * [zyte-1B](https://huggingface.co/aihub-app/zyte-1B) (LLaMA)
+* [Qwen1.5-0.5B-Chat](https://huggingface.co/Qwen/Qwen1.5-0.5B-Chat) (Qwen2)
 
 ## Import a model
 
