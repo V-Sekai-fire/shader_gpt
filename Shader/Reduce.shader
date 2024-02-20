@@ -36,7 +36,7 @@ float max4(float4 v) {
 	return max(max(v.x, v.y), max(v.z, v.w));
 }
 
-float4 main(uint2 pos) {
+float4 main(uint2 pos, uint threadId, uint groupSize) {
 	// torch.mean, torch.aminmax
 	// output[i,j][e] = torch.mean(pow(input[i,j*K+k][c], e), dim=(k,c))
 	// output[i,j].xz = torch.min(min4(input[i,j*K+k][c], dim=(k,c))
@@ -50,7 +50,7 @@ float4 main(uint2 pos) {
 		float4 O = float4(+oo, -oo, 0, 0);
 	#endif
 	K = min(K, uint(max(0, int(_InputDim.y-jK)))); // prevent out-of-bound read of _InputTex
-	for(uint k=0; k<K; k++) {
+	for(uint k=threadId; k<K; k+=groupSize) {
 		float4 X = loadTensor(_InputTex, pos.x, jK+k, _InputDim);
 		#if !defined(INPUT_REDUCED)
 			int4 index = (jK%_IndexMod+k)*4 + uint4(0,1,2,3);
@@ -80,13 +80,17 @@ float4 main(uint2 pos) {
 	// 	+(_Linear1 == 0 ? 0 : _Linear1*O[1])
 	// 	+(_Linear2 == 0 ? 0 : _Linear2*O[2])
 	// 	+(_Linear3 == 0 ? 0 : _Linear3*O[3]);
-	return _Linear0*O[0] + _Linear1*O[1] + _Linear2*O[2] + _Linear3*O[3];
+	return mul(O, float4x4(_Linear0, _Linear1, _Linear2, _Linear3));
 }
 float4 frag(float4 screenPos : SV_Position) : SV_Target {
-	uint2 pos = getThreadId(screenPos);
-	if(any(pos >= _OutputDim.xy))
+	#if defined(REDUCE_SUMPOW)
+		uint4 pos = getThreadIdAndGroupSize(screenPos, _OutputDim);
+	#else
+		uint4 pos = uint4(getThreadId(screenPos), 0, 1);
+	#endif
+	if(any(pos.xy >= _OutputDim.xy))
 		discard;
-	return main(pos);
+	return main(pos.xy, pos.z, pos.w) * pos.w;
 }
 ENDHLSL
 	Pass {

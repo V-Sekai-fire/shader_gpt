@@ -28,11 +28,11 @@ HLSLINCLUDE
 
 uint4 _OutputDim;
 Texture2D<float4> _InputTex;  uint4 _InputDim;
-Texture2D<float4> _ReduceTex; uint2 _ReduceDim;
+Texture2D<float4> _ReduceTex; uint4 _ReduceDim;
 Texture2D<float4> _OffsetTex;
 Texture2D<float4> _WeightTex; uint4 _WeightDim;
 Texture2D<float4> _BiasTex;   uint4 _BiasDim;
-Texture2D<float4> _RotaryTex; uint2 _RotaryDim;
+Texture2D<float4> _RotaryTex; uint4 _RotaryDim;
 uniform uint2 _InputOff;
 uniform uint4 _OutputOff;
 uniform float4 _IndexRange;
@@ -44,7 +44,7 @@ float4 main(uint2 pos) {
 	// output[i,j] = func(input[i,j])
 
 	float4 X = loadTensor(_InputTex, _InputOff+pos, _InputDim);
-	float4 R = loadTensor(_ReduceTex, pos.xy*_ReduceDim.xy/_InputDim.xy);
+	float4 R = loadTensor(_ReduceTex, pos.xy*_ReduceDim.xy/_InputDim.xy, _ReduceDim);
 	float4 O = X;
 	int4 index = pos.y%(_InputDim.y/_ReduceDim.y)*4 + uint4(0,1,2,3);
 	int2 range = _IndexRange.xy + dot(_IndexRange.zw, loadTensor(_OffsetTex, pos.x, 0).xy);

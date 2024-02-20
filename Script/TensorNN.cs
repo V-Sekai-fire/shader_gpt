@@ -58,37 +58,34 @@ public class TensorNN {
 		ctx.Blit(output, mat);
 		return output;
 	}
-	Texture _Reduce(Texture input, Keyword func, int groups=1, Vector4? indexRange=default, Texture rangeOffset=default, Matrix4x4? linear=default, bool inputReduced=false) {
-		Debug.Assert(ctx.Size1(input) % groups == 0);
-		var size1 = groups;
-		if(!inputReduced && ctx.Size1(input) / groups >= reduceSplit) {
-			var n = ctx.Size1(input) / groups;
-			if(groups == 1)
-				size1 = Mathf.CeilToInt(Mathf.Sqrt(n));
-			else { // ensure ctx.Size1(input) % size1 == 0 && size1 % groups == 0
-				var m = 1 << Mathf.CeilToInt(Mathf.Log(n, 2)/2);
-				if(n % m == 0)
-					size1 = groups * m;
+	Texture _Reduce(Texture input, Keyword func, int groups=1, Vector4? indexRange=default, Texture rangeOffset=default, Matrix4x4? linear=default, int indexMod=0) {
+		Debug.Assert(ctx.Size1(input) % groups == 0 || indexMod > 0);
+		var groupSize = ctx.Size1(input) / groups;
+		var mipmap = 0;
+		if(func == Keyword.REDUCE_SUMPOW)
+			mipmap = Mathf.Max(0, Mathf.FloorToInt(Mathf.Log(groupSize, 2)/2-1));
+		else if(indexMod == 0 && groupSize >= reduceSplit) {
+			var size1 = groups << Mathf.CeilToInt(Mathf.Log(groupSize, 2)/2);
+			if(groups == 1 || ctx.Size1(input) % size1 == 0) { // disallow padding if groups > 1
+				var input2 = _Reduce(input, func, groups:size1, indexRange:indexRange, rangeOffset:rangeOffset, indexMod:groupSize);
+				var output2 = _Reduce(input2, func, groups:groups, linear:linear, indexMod:-1);
+				ctx.Release(input2);
+				return output2;
 			}
 		}
-		var output = ctx.GPUTensor(ctx.Size0(input), size1, dtype:VertexAttributeFormat.Float32);
+		var output = ctx.GPUTensor(ctx.Size0(input), groups, dtype:VertexAttributeFormat.Float32, mipmap:mipmap);
 		var mat = ctx.Operator(kernels["Reduce"]);
 		EnableOption(mat, func);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
-		if(inputReduced)
+		if(indexMod > 0)
+			mat.SetInt("_IndexMod", indexMod);
+		else if(indexMod < 0)
 			EnableOption(mat, Keyword.INPUT_REDUCED);
 		if(indexRange != default)
 			mat.SetVector("_IndexRange", indexRange.Value);
 		if(rangeOffset)
 			SetTensor(mat, "_Offset", rangeOffset);
-		if(size1 > groups) {
-			mat.SetInt("_IndexMod", ctx.Size1(input) / groups);
-			ctx.Blit(output, mat);
-			var output2 = _Reduce(output, func, groups:groups, linear:linear, inputReduced:true);
-			ctx.Release(output);
-			return output2;
-		}
 		if(linear != default) {
 			mat.SetVector("_Linear0", linear.Value.GetColumn(0));
 			mat.SetVector("_Linear1", linear.Value.GetColumn(1));
