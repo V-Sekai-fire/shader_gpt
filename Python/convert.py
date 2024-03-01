@@ -191,14 +191,28 @@ def export_tokenizer(tokenizer, folder):
 	vocab = [token if token in added_tokens_set else "".join(chr(b) for b in decode_token(token)) for token in vocab]
 	merges = [f"{vocab[i]} {vocab[j]}" for i, j in merges]
 
+	chat_templates = {}
+	messages = [
+		{"role": "system", "content": "{0}"},
+		{"role": "user", "content": "{0}"},
+		{"role": "assistant", "content": "{0}"},
+	]
+	last_text = ""
+	for i in range(3):
+		text = tokenizer.apply_chat_template(messages[:i+1], tokenize=False)
+		chat_templates[messages[i]["role"]] = text[len(last_text):]
+		last_text = text
+
 	# workaround for broken json parser
 	escape_brackets = lambda lst: [re.sub(r'[\[\]\{\}]', lambda m: f"\\u{ord(m.group()) :04X}", x) for x in lst]
 	unescape_brackets = lambda x: x.replace(r"\\u00", r"\u00")
 	output = unescape_brackets(json.dumps(dict(
 		vocab  = escape_brackets(vocab),
 		merges = escape_brackets(merges),
+		bos_token_id = tokenizer.bos_token_id,
 		eos_token_id = tokenizer.eos_token_id,
 		added_tokens = added_tokens,
+		chat_templates = chat_templates,
 	), ensure_ascii=True, indent=2))
 
 	os.makedirs(folder, exist_ok=True)

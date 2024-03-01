@@ -78,7 +78,8 @@ public class GPTTokenizer : MonoBehaviour
 		return text;
 	}
 	
-	private int[] tokenArray = new int[2048];
+	const int MAX_TOKENS = 16384;
+	private int[] tokenArray = new int[MAX_TOKENS];
 	private int tokenCount;
 	public int[] Encode(string text, bool split_special_tokens=true) {
 		tokenCount = 0;
@@ -108,7 +109,7 @@ public class GPTTokenizer : MonoBehaviour
 		}
 		return Take(tokenArray, tokenCount);
 	}
-	private string[] partArray = new string[2048];
+	private string[] partArray = new string[MAX_TOKENS];
 	private void BytePairEncode(string bytes) {
 		var n = bytes.Length;
 		var parts = partArray;
