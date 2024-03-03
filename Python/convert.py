@@ -54,10 +54,11 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=409
 	for name, layer in model.named_modules():
 		# RotaryEmbedding => Linear
 		if hasattr(layer, "cos_cached"):
-			weight = torch.cat((
-				layer.cos_cached[..., :layer.cos_cached.shape[-1]//2],
-				layer.sin_cached[..., :layer.sin_cached.shape[-1]//2]), dim=-1)
-			state_dict[f"{name}.weight"] = weight[:max_positions]
+			half_dim = layer.cos_cached.shape[-1]//2
+			# pad rotary weights as complex numbers
+			state_dict[f"{name}.weight"] = torch.cat((
+				torch.nn.functional.pad(layer.cos_cached[:max_positions, :half_dim], (0, -half_dim%4), value=1),
+				torch.nn.functional.pad(layer.sin_cached[:max_positions, :half_dim], (0, -half_dim%4), value=0)), dim=-1)
 		# QuantLinear => Linear
 		elif hasattr(layer, "qweight"):
 			layer.bias, bias = None, layer.bias
@@ -99,11 +100,25 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=409
 			else:
 				continue
 			del state_dict[name]
-	elif model_type in ["phi", "llama", "qwen2"]:
+	elif model_type in ["phi", "llama", "mistral", "qwen2"]:
 		for name, data in list(state_dict.items()):
 			if name in ["model.embed_tokens.weight", "lm_head.weight"]:
 				state_dict[f"{name}.T"] = data.T
 			else:
+				if m := re.fullmatch(r"(.*[.]\d+[.]self_attn)[.]([qkv]_proj[.](weight|bias)|o_proj[.]weight)", name):
+					half_dim = getattr(model.get_submodule(m[1]), "head_dim", 0)//2
+					if half_dim % 4 != 0: # pad half_dim
+						assert model_type != "phi"
+						if m[2].startswith("k_proj"): # fix softmax_scale and bake into k_proj
+							data = data * (math.sqrt((-half_dim%4+half_dim)*2) / math.sqrt(half_dim*2))
+						if m[2].startswith("o_proj"):
+							view = data.view(data.shape[0], -1, half_dim)
+							view = torch.nn.functional.pad(view, (0, -half_dim%4))
+							state_dict[name] = view.view(data.shape[0], -1)
+						else:
+							view = data.view(-1, half_dim, *data.shape[1:])
+							view = torch.nn.functional.pad(view, (*(0,0)*len(data.shape[1:]), 0, -half_dim%4))
+							state_dict[name] = view.view(-1, *data.shape[1:])
 				continue
 			del state_dict[name]
 	else:

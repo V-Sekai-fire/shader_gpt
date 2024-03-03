@@ -14,6 +14,7 @@ public class Llama : GPTBase {
 		public string hidden_act;
 		public int max_position_embeddings;
 		public int vocab_size;
+		public int sliding_window; // for mistral & qwen2
 	}
 	Config config;
 
@@ -73,7 +74,7 @@ public class Llama : GPTBase {
 		BatchRelease(nn.Scatter(keys,   input_ids, MarkRelease(key),   indexMask:new Vector2(0,1)));
 		BatchRelease(nn.Scatter(values, input_ids, MarkRelease(value), indexMask:new Vector2(0,1)));
 
-		var window_size = config.max_position_embeddings;
+		var window_size = config.sliding_window == 0 ? config.max_position_embeddings : config.sliding_window;
 		var norm_factor = 1f / Mathf.Sqrt(ctx.Size1(query)*4 / config.num_attention_heads);
 		var attn_scores = BatchRelease(nn.Linear(MarkRelease(query), keys, heads:config.num_attention_heads, weightHeads:config.num_key_value_heads, scale:norm_factor));
 		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores), groups:config.num_attention_heads,

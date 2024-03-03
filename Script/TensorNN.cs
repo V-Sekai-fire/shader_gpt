@@ -168,6 +168,7 @@ public class TensorNN {
 		return output;
 	}
 	public Texture Rotary(Texture input, Texture rotary, int groups=1) {
+		Debug.Assert(ctx.Size1(input) % groups == 0 && ctx.Size1(input)/groups % 2 == 0 && ctx.Size1(rotary) % 2 == 0);
 		var output = ctx.GPUTensor(ctx.Size0(input), ctx.Size1(input), dtype:dataType);
 		var mat = ctx.Operator(kernels["Function"]);
 		EnableOption(mat, Keyword.FUNC_ROTARY);

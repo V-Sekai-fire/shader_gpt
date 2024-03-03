@@ -74,7 +74,7 @@ public class ModelImporter {
 			type = typeof(GPTNeoX);
 		else if(model_type == "phi")
 			type = typeof(Phi);
-		else if(model_type == "llama" || model_type == "qwen2")
+		else if(model_type == "llama" || model_type == "mistral" || model_type == "qwen2")
 			type = typeof(Llama);
 		else {
 			Debug.LogError($"unsupported architecture {model_type}");
