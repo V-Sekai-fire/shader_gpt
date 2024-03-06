@@ -8,16 +8,20 @@ uint4 pcg4d(uint4 v) {
 	v.x += v.y*v.w; v.y += v.z*v.x; v.z += v.x*v.y; v.w += v.y*v.z;
 	return v;
 }
-float4 erf(float4 v) {
-	// https://github.com/microsoft/onnxruntime/blob/main/js/web/lib/wasm/jsep/webgpu/ops/unary-op.ts
-	const float r0 = 0.3275911;
-	const float r1 = 0.254829592;
-	const float r2 = -0.284496736;
-	const float r3 = 1.421413741;
-	const float r4 = -1.453152027;
-	const float r5 = 1.061405429;
-	float4 x = 1.0 / (1.0 + r0 * abs(v));
-	return sign(v) * (1.0 - ((((r5 * x + r4) * x + r3) * x + r2) * x + r1) * x * exp(-v*v));
+float4 erf(float4 x) {
+	// cuda erff
+	bool4 p = abs(x) >= +1.00295997e+00;
+	float4 t = (p ? abs(x) : x * x);
+	float4 r = (p ? +1.12198715e-04 : +8.48349446e-05);
+	r = mad(r, t, (p ? -1.32752524e-03 : -8.21309164e-04));
+	r = mad(r, t, (p ? +8.39653518e-03 : +5.21348882e-03));
+	r = mad(r, t, (p ? -4.02465835e-02 : -2.68687736e-02));
+	r = mad(r, t, (p ? +1.59504309e-01 : +1.12840049e-01));
+	r = mad(r, t, (p ? +9.12917674e-01 : -3.76126647e-01));
+	r = mad(r, t, (p ? +6.29060030e-01 : +1.28379151e-01));
+	t = (p ? -abs(x) : x);
+	r = mad(r, t, t);
+	return (p ? sign(x) * (1 - exp2(r)) : r);
 }
 float4 gelu(float4 x) {
 	// transformers.activations.GELUActivation

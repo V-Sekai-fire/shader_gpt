@@ -36,7 +36,7 @@ public class TensorNN {
 		ctx.Blit(output, mat);
 		return output;
 	}
-	public Texture Linear(Texture input, Texture weight, bool transposeWeight=false, int heads=1, int weightHeads=0, float scale=1f) {
+	public Texture Linear(Texture input, Texture weight, bool transposeWeight=false, int heads=1, int weightHeads=0) {
 		if(weightHeads == 0)
 			weightHeads = heads;
 		Debug.Assert(ctx.Size1(input)%heads == 0 && ctx.Size1(weight)%weightHeads == 0 && ctx.Size0(weight)%4 == 0 && heads%weightHeads == 0);
@@ -54,7 +54,6 @@ public class TensorNN {
 		}
 		if(transposeWeight)
 			EnableOption(mat, Keyword.WEIGHT_TRANSPOSED);
-		mat.SetFloat("_Scale", scale);
 		ctx.Blit(output, mat);
 		return output;
 	}
@@ -115,7 +114,7 @@ public class TensorNN {
 		ctx.Release(reduce);
 		return output;
 	}
-	Texture _Normalize(Texture input, Keyword func, Keyword reduceFunc, int groups=1, Vector4? indexRange=default, Texture rangeOffset=default) {
+	Texture _Normalize(Texture input, Keyword func, Keyword reduceFunc, int groups=1, float scale=1f, Vector4? indexRange=default, Texture rangeOffset=default) {
 		var reduce = _Reduce(input, reduceFunc, groups:groups, indexRange:indexRange, rangeOffset:rangeOffset);
 		var output = ctx.GPUTensor(ctx.Size0(input), ctx.Size1(input), dtype:dataType);
 		var mat = ctx.Operator(kernels["Function"]);
@@ -127,19 +126,19 @@ public class TensorNN {
 			mat.SetVector("_IndexRange", indexRange.Value);
 		if(rangeOffset)
 			SetTensor(mat, "_Offset", rangeOffset);
+		mat.SetFloat("_Scale", scale);
 		ctx.Blit(output, mat);
 		ctx.Release(reduce);
 		return output;
 	}
-	public Texture Fusion(Texture input, Vector4? scale=default, Texture mul=default, Texture add=default, Keyword func=default) {
+	public Texture Fusion(Texture input, float scale=1f, Texture mul=default, Texture add=default, Keyword func=default) {
 		Debug.Assert(!mul || (ctx.Size0(input) % ctx.Size0(mul) == 0 && ctx.Size1(input) % ctx.Size1(mul) == 0));
 		Debug.Assert(!add || (ctx.Size0(input) % ctx.Size0(add) == 0 && ctx.Size1(input) % ctx.Size1(add) == 0));
 		var output = ctx.GPUTensor(ctx.Size0(input), ctx.Size1(input), dtype:dataType);
 		var mat = ctx.Operator(kernels["Function"]);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
-		if(scale != default)
-			mat.SetVector("_Weight", scale.Value);
+		mat.SetVector("_Weight", scale * Vector4.one);
 		if(mul)
 			SetTensor(mat, "_Weight", mul);
 		if(add)
@@ -184,14 +183,14 @@ public class TensorNN {
 		return _Reduce(input, Keyword.REDUCE_MINMAX, indexRange:indexRange,
 			linear:new Matrix4x4(default, default, default, new Vector4(1,0,0,0)));
 	}
-	public Texture Softmax(Texture input, int groups=1, Vector4? indexRange=default, Texture rangeOffset=default) {
-		var temp = _Normalize(input, Keyword.FUNC_SOFTMAX_LINF, Keyword.REDUCE_MINMAX, groups:groups, indexRange:indexRange, rangeOffset:rangeOffset);
+	public Texture Softmax(Texture input, int groups=1, float scale=1f, Vector4? indexRange=default, Texture rangeOffset=default) {
+		var temp = _Normalize(input, Keyword.FUNC_SOFTMAX_LINF, Keyword.REDUCE_MINMAX, groups:groups, scale:scale, indexRange:indexRange, rangeOffset:rangeOffset);
 		var output = _Normalize(temp, Keyword.FUNC_NORMALIZE_L1, Keyword.REDUCE_SUMPOW, groups:groups);
 		ctx.Release(temp);
 		return output;
 	}
 	public Texture Gumbel(Texture input, float temperature) {
-		return Fusion(input, func:Keyword.FUNC_GUMBEL, scale:Vector4.one*temperature, add:input);
+		return Fusion(input, func:Keyword.FUNC_GUMBEL, scale:temperature, add:input);
 	}
 
 	void SetTensor(Material mat, string name, Texture tex) {

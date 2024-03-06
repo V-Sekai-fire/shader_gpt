@@ -72,9 +72,9 @@ public class Phi : GPTBase {
 
 		var window_size = config.max_position_embeddings;
 		var norm_factor = 1f / Mathf.Sqrt(ctx.Size1(query)*4 / config.num_attention_heads);
-		var attn_scores = BatchRelease(nn.Linear(MarkRelease(query), keys, heads:config.num_attention_heads, weightHeads:config.num_key_value_heads, scale:norm_factor));
-		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores), groups:config.num_attention_heads,
-			indexRange:new Vector4(1-window_size, 1, 0, 1), rangeOffset:input_ids));
+		var attn_scores = BatchRelease(nn.Linear(MarkRelease(query), keys, heads:config.num_attention_heads, weightHeads:config.num_key_value_heads));
+		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores), scale:norm_factor,
+			groups:config.num_attention_heads, indexRange:new Vector4(1-window_size, 1, 0, 1), rangeOffset:input_ids));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:config.num_attention_heads, weightHeads:config.num_key_value_heads, transposeWeight:true));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), parameters[$"{path}.dense.weight"]));
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:parameters[$"{path}.dense.bias"]));

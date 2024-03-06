@@ -9,18 +9,18 @@ The following architectures are implemented:
 * [GPT-Neo](https://huggingface.co/docs/transformers/main/en/model_doc/gpt_neo)
 * [GPT-NeoX](https://huggingface.co/docs/transformers/main/en/model_doc/gpt_neox)
 * [Phi](https://huggingface.co/docs/transformers/main/en/model_doc/phi)
-* [LLaMA](https://huggingface.co/docs/transformers/main/en/model_doc/llama)
+* [Llama2](https://huggingface.co/docs/transformers/main/en/model_doc/llama2)
+* [Mistral](https://huggingface.co/docs/transformers/main/en/model_doc/mistral)
 * [Qwen2](https://huggingface.co/docs/transformers/main/en/model_doc/qwen2)
 
 The following models are tested:
 * [TinyStories-33M](https://huggingface.co/roneneldan/TinyStories-33M) (GPT-Neo)
-* [gpt-neo-125M](https://huggingface.co/EleutherAI/gpt-neo-125M) (GPT-Neo)
-* [pythia-160m](https://huggingface.co/EleutherAI/pythia-160m) (GPT-NeoX)
+* [pythia-70m-deduped](https://huggingface.co/EleutherAI/pythia-70m-deduped) (GPT-NeoX)
 * [LaMini-GPT-124M](https://huggingface.co/MBZUAI/LaMini-GPT-124M) (GPT2)
-* [phi-1_5](https://huggingface.co/microsoft/phi-1_5) (Phi)
-* [TinyLlama-1.1B-orca-v1.0](https://huggingface.co/sreeramajay/TinyLlama-1.1B-orca-v1.0) (LLaMA)
-* [zyte-1B](https://huggingface.co/aihub-app/zyte-1B) (LLaMA)
+* [Minueza-32M-UltraChat](https://huggingface.co/Felladrin/Minueza-32M-UltraChat) (Mistral)
 * [Qwen1.5-0.5B-Chat](https://huggingface.co/Qwen/Qwen1.5-0.5B-Chat) (Qwen2)
+* [TinyLlama-1.1B-Chat-v1.0](https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0) (Llama2)
+* [phi-1_5](https://huggingface.co/microsoft/phi-1_5) (Phi)
 
 ## Import a model
 

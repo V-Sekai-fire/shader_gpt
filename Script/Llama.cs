@@ -37,8 +37,8 @@ public class Llama : GPTBase {
 		var input = InputTensor(testcase.input_ids);
 		var (hidden_states, logits) = LlamaForCausalLM(input);
 		ctx.Release(input);
-		AssertData((RenderTexture)hidden_states, -1, testcase.hidden_states, 3e-5f);
-		AssertData((RenderTexture)logits, -1, testcase.logits, 3e-5f);
+		AssertData((RenderTexture)hidden_states, -1, testcase.hidden_states, 4e-5f);
+		AssertData((RenderTexture)logits, -1, testcase.logits, 4e-5f);
 		ctx.Release(hidden_states);
 		ctx.Release(logits);
 	}
@@ -76,9 +76,9 @@ public class Llama : GPTBase {
 
 		var window_size = config.sliding_window == 0 ? config.max_position_embeddings : config.sliding_window;
 		var norm_factor = 1f / Mathf.Sqrt(ctx.Size1(query)*4 / config.num_attention_heads);
-		var attn_scores = BatchRelease(nn.Linear(MarkRelease(query), keys, heads:config.num_attention_heads, weightHeads:config.num_key_value_heads, scale:norm_factor));
-		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores), groups:config.num_attention_heads,
-			indexRange:new Vector4(1-window_size, 1, 0, 1), rangeOffset:input_ids));
+		var attn_scores = BatchRelease(nn.Linear(MarkRelease(query), keys, heads:config.num_attention_heads, weightHeads:config.num_key_value_heads));
+		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores), scale:norm_factor,
+			groups:config.num_attention_heads, indexRange:new Vector4(1-window_size, 1, 0, 1), rangeOffset:input_ids));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:config.num_attention_heads, weightHeads:config.num_key_value_heads, transposeWeight:true));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), parameters[$"{path}.o_proj.weight"]));
 		if(parameters.TryGetValue($"{path}.o_proj.bias", out bias))

@@ -17,6 +17,7 @@ Properties {
 	_OutputOff("_OutputOff", Vector) = (0, 0, 0, 0)
 	_IndexRange("_IndexRange", Vector) = (0, 1048576, 0, 0)
 	_Eps("_Eps", Float) = 0
+	_Scale("_Scale", Float) = 1
 	_Weight("_Weight", Vector) = (1, 1, 1, 1)
 	_Bias  ("_Bias",   Vector) = (0, 0, 0, 0)
 }
@@ -37,6 +38,7 @@ uniform uint2 _InputOff;
 uniform uint4 _OutputOff;
 uniform float4 _IndexRange;
 uniform float _Eps;
+uniform float _Scale;
 uniform float4 _Weight;
 uniform float4 _Bias;
 
@@ -54,7 +56,7 @@ float4 main(uint2 pos) {
 	#elif defined(FUNC_NORMALIZE_L1)
 		O = mask ? X / R[1] : 0; // R is sum of powers
 	#elif defined(FUNC_SOFTMAX_LINF)
-		O = mask ? saturate(exp(X - R.y)) : 0; // R is minmax
+		O = mask ? saturate(exp((X - R.y) * _Scale)) : 0; // R is minmax
 	#elif defined(FUNC_GUMBEL)
 		uint4 seed = uint4(pos.xy, asuint(_Time.y), asuint(_SinTime.w));
 		O = -log(-log((pcg4d(seed)>>9u)/8388608.0 + 0.5/8388608.0)); // be careful to avoid input 0,1
