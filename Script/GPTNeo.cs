@@ -1,7 +1,4 @@
 using UnityEngine;
-using UnityEngine.Rendering;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace ShaderGPT {
 public class GPTNeo : GPTBase {

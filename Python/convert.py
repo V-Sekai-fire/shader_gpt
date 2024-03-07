@@ -44,7 +44,7 @@ def quantize_unorm8(data, asym=True, bits=8, group=4, *, dstep=256, estep=2):
 	expo = pad_align(expo, [4, 1, 1]).reshape(-1, 4, expo.shape[1]).transpose(0,2,1)
 	return mant, expo.astype(np.int8).astype(np.uint8)
 
-def export_lm(model, folder, force_write=False, quantize=None, max_positions=4096):
+def export_lm(model, folder, force_write=False, quantize=None, max_positions=16384):
 	os.makedirs(folder, exist_ok=True)
 	print(folder/"config.json")
 	with open(folder/"config.json", "w") as f:
@@ -55,10 +55,14 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=409
 		# RotaryEmbedding => Linear
 		if hasattr(layer, "cos_cached"):
 			half_dim = layer.cos_cached.shape[-1]//2
-			# pad rotary weights as complex numbers
-			state_dict[f"{name}.weight"] = torch.cat((
+			weight = torch.cat(( # pad rotary weights as complex numbers
 				torch.nn.functional.pad(layer.cos_cached[:max_positions, :half_dim], (0, -half_dim%4), value=1),
 				torch.nn.functional.pad(layer.sin_cached[:max_positions, :half_dim], (0, -half_dim%4), value=0)), dim=-1)
+			name0 = re.sub(r"[.]\d+[.]", ".0.", name, count=1)
+			if f"{name0}.weight" in state_dict and torch.allclose(weight, state_dict[f"{name0}.weight"]):
+				pass # skip duplicate weights to save space
+			else:
+				state_dict[f"{name}.weight"] = weight
 		# QuantLinear => Linear
 		elif hasattr(layer, "qweight"):
 			layer.bias, bias = None, layer.bias
@@ -127,7 +131,7 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=409
 	for name in list(state_dict.keys()):
 		# reduce memory use
 		data = state_dict.pop(name).cpu().numpy()
-		print("\t", name, data.shape, data.dtype)
+		print(f"\t{name}\t{data.shape} {data.dtype}")
 		if re.search(r"\.weight(\.T)?$", name) and len(data.shape) == 2:
 			data = pad_align(data, [1, 4]).reshape(data.shape[0], -1, 4)
 		elif re.search(r"\.(weight|bias)$", name) and len(data.shape) == 1:

@@ -1,7 +1,5 @@
 using UnityEngine;
-using UnityEngine.Rendering;
-using System.Collections.Generic;
-using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace ShaderGPT {
 public class GPTNeoX : GPTBase {
@@ -59,7 +57,8 @@ public class GPTNeoX : GPTBase {
 		key   = BatchRelease(nn.Fusion(MarkRelease(key),   add:parameters[$"{path}.key.bias"]));
 		value = BatchRelease(nn.Fusion(MarkRelease(value), add:parameters[$"{path}.value.bias"]));
 
-		var rotary = nn.Embedding(input_ids, null, parameters[$"{path}.rotary_emb.weight"]);
+		parameters.TryGetValue(Regex.Replace($"{path}.rotary_emb.weight", @"[.]\d+[.]", ".0."), out var rotary_emb);
+		var rotary = nn.Embedding(input_ids, null, rotary_emb ?? parameters[$"{path}.rotary_emb.weight"]);
 		query = BatchRelease(nn.Rotary(MarkRelease(query), rotary, groups:config.num_attention_heads));
 		key   = BatchRelease(nn.Rotary(MarkRelease(key),   rotary, groups:config.num_attention_heads));
 		ctx.Release(rotary);
