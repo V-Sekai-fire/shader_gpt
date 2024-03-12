@@ -24,25 +24,60 @@ def imwrite(path, data):
 def pad_align(data, align):
 	return np.pad(data, [(0,(-n)%m) for n, m in zip(data.shape, align)])
 
-def quantize_unorm8(data, asym=True, bits=8, group=4, *, dstep=256, estep=2):
+def export_custom_int8(data, asym=True, group_size=4, *, estep=2):
 	presets = [(-127, +127, 0)] + ([(-63, +191, +85), (-191, +63, -85)] if asym else [])
 	bmin, bmax, eoff = np.array(presets, dtype=data.dtype).T[..., None, None, None]
-	gdata = pad_align(data.reshape(data.shape[0], -1), [1, group]).reshape(data.shape[0], -1, group)
 
-	dmin = np.minimum(0, np.amin(gdata, axis=-1, keepdims=True))
-	dmax = np.maximum(0, np.amax(gdata, axis=-1, keepdims=True))
-	expo = np.clip(np.ceil(np.log2(np.maximum(dmin/(bmin/dstep), dmax/(bmax/dstep)))*estep), -42, 42)
-	scale = 255/dstep * np.exp2(expo/estep)
-	mant = np.clip(gdata/scale, bmin/255, bmax/255).astype(gdata.dtype)
-	qerr = np.amax(np.abs(np.round(mant*(2**bits-1))/(2**bits-1) * scale - gdata), axis=-1, keepdims=True)
+	shape1 = (data.shape[1]+3)&~3
+	data = pad_align(data, [1, group_size]).reshape(data.shape[0], -1, group_size)
+
+	dmin = np.minimum(0, np.amin(data, axis=-1, keepdims=True))
+	dmax = np.maximum(0, np.amax(data, axis=-1, keepdims=True))
+	expo = np.clip(np.ceil(np.log2(np.maximum(dmin/(bmin/256), dmax/(bmax/256)))*estep), -42, 42)
+
+	scale = np.exp2(expo/estep)
+	mant = np.clip(data/scale, bmin/256, bmax/256).astype(data.dtype)
+	qerr = np.amax(np.abs(np.round(mant*256)/256 * scale - data), axis=-1, keepdims=True)
 	best = np.argmin(qerr, axis=0, keepdims=True)
 	expo = np.take_along_axis(expo+eoff, best, axis=0)[0]
 	mant = np.take_along_axis(mant, best, axis=0)[0]
+	mant = np.where(mant < -1/512, 1+mant/(255/256), mant/(255/256))
 
-	mant = np.where(mant < -1/512, 1+mant, mant) # keep tiny float
-	mant = mant.reshape(mant.shape[0], -1, data.shape[2])[:, :data.shape[1]]
+	mant = mant.reshape(mant.shape[0], -1)[:, :shape1]
 	expo = pad_align(expo, [4, 1, 1]).reshape(-1, 4, expo.shape[1]).transpose(0,2,1)
+	expo = expo.reshape(expo.shape[0], -1)[:, :shape1]
 	return mant, expo.astype(np.int8).astype(np.uint8)
+
+def export_gptq(layer):
+	assert layer.group_size % 4 == 0, f"group_size {layer.group_size} should be a multiple of 4"
+	assert 8 % layer.bits == 0, f"bits {layer.bits} should be a divisor of 8"
+	assert str(type(layer)).find("exllama") < 0, "exllama backend is not supported. please set disable_exllama=True in quantization config"
+	assert torch.equal(layer.g_idx, torch.tensor([i // layer.group_size for i in range(layer.g_idx.shape[0])],
+		dtype=torch.int32, device=layer.g_idx.device)), "act-order is not supported"
+	wf = torch.tensor(list(range(0, 32, layer.bits)), dtype=torch.int32).unsqueeze(0).to(layer.qweight.device)
+
+	scales = layer.scales
+	zeros = torch.bitwise_right_shift(
+		torch.unsqueeze(layer.qzeros, 2).expand(-1, -1, 32//layer.bits),
+		wf.unsqueeze(0)
+	).to(torch.uint8).add(1).bitwise_and(2**layer.bits - 1).reshape(scales.shape) # not sure on wrapping add 1
+	weight = torch.bitwise_right_shift(
+		torch.unsqueeze(layer.qweight, 1).expand(-1, 32//layer.bits, -1),
+		wf.unsqueeze(-1)
+	).to(torch.uint8).bitwise_and(2**layer.bits - 1)
+	weight = weight.reshape(weight.shape[0] * weight.shape[1], weight.shape[2])
+
+	mult = 255 // (2**layer.bits - 1)
+	weight = weight * mult
+	zeros  = zeros * mult
+	scales = scales.float() / mult * 256
+	scales = scales.view(dtype=torch.int32).bitwise_and(0xFFFFFF00).bitwise_or(zeros).view(dtype=torch.float32)
+
+	weight = weight.transpose(0,1).cpu().numpy()
+	scales = scales.transpose(0,1).cpu().numpy()
+	scales = pad_align(scales, [4, 1]).reshape(-1, 4, scales.shape[1]).transpose(0,2,1)
+	scales = scales.reshape(scales.shape[0], -1)
+	return weight, scales
 
 def export_lm(model, folder, force_write=False, quantize=None, max_positions=16384):
 	os.makedirs(folder, exist_ok=True)
@@ -50,6 +85,7 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 	with open(folder/"config.json", "w") as f:
 		json.dump(model.config.to_dict(), f, indent=2, sort_keys=True)
 
+	gptq_layers = {}
 	state_dict = dict(model.state_dict())
 	for name, layer in model.named_modules():
 		# RotaryEmbedding => Linear
@@ -68,6 +104,7 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 			layer.bias, bias = None, layer.bias
 			weight = layer(torch.eye(layer.infeatures, dtype=torch.float16, device=model.device)).transpose(1,0)
 			layer.bias = bias
+			gptq_layers[id(weight)] = layer
 			state_dict[f"{name}.weight"] = weight
 			for key in ("qweight", "qzeros", "scales", "g_idx"):
 				del state_dict[f"{name}.{key}"]
@@ -130,51 +167,54 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 
 	for name in list(state_dict.keys()):
 		# reduce memory use
-		data = state_dict.pop(name).cpu().numpy()
-		print(f"\t{name}\t{data.shape} {data.dtype}")
-		if re.search(r"\.weight(\.T)?$", name) and len(data.shape) == 2:
-			data = pad_align(data, [1, 4]).reshape(data.shape[0], -1, 4)
-		elif re.search(r"\.(weight|bias)$", name) and len(data.shape) == 1:
-			data = data.reshape(1, -1, 4)
+		data = state_dict.pop(name)
+		print(f"\t{name}\t{tuple(data.shape)}")
+		assert (re.search(r"\.weight(\.T)?$", name) and len(data.shape) == 2)\
+			or (re.search(r"\.(weight|bias)$", name) and len(data.shape) == 1)
+
+		quantizable = bool(re.search(r"(?<!rotary_emb)\.weight(\.T)?$", name))
+		quantizable = quantizable and len(data.shape) == 2
+		quantizable = quantizable and quantize is not None and quantize(name, data.shape)
+
+		filenames = []
+		if id(data) in gptq_layers:
+			filenames = (f"{name}.png", f"{name}.q8.exr")
+		elif quantizable:
+			filenames = (f"{name}.exr", f"{name}.q8.png")
 		else:
-			raise KeyError(f"unexpected {name} : {data.shape}")
+			filenames = (f"{name}.exr",)
 
-		# wrap wide texture
-		MAX_SIZE = 16384
-		wrap1 = 1+(data.shape[1]-1) // MAX_SIZE
-		if wrap1 > 1:
-			data = pad_align(data, (1, MAX_SIZE, 1))
-			data = data.reshape(-1, MAX_SIZE, data.shape[2])
-		assert data.shape[0] <= MAX_SIZE and data.shape[1] <= MAX_SIZE
+		possible_filenames = (f"{name}.exr", f"{name}.png", f"{name}.q8.exr", f"{name}.q8.png")
+		if not force_write and set(x for x in possible_filenames if (folder/x).exists()) == set(filenames):
+			continue
+		for x in possible_filenames:
+			(folder/x).unlink(missing_ok=True)
 
-		quantizable = data.shape[0] % 4 == 0 and bool(re.search(r"(?<!rotary_emb)\.weight(\.T)?$", name))
-		if data.dtype == np.uint8:
-			if not force_write and (folder/f"{name}.png").exists():
-				continue
-
-			imwrite(folder/f"{name}.png", data[::-1])
-		elif quantizable and quantize is not None and quantize(name, data.shape):
-			if not force_write and (folder/f"{name}.exr").exists() and (folder/f"{name}.q8.png").exists():
-				continue
-			(folder/f"{name}.exr").unlink(missing_ok=True)
-			(folder/f"{name}.q8.png").unlink(missing_ok=True)
-
-			# NOTE: quantize unwrapped
-			if wrap1 > 1:
-				data = data.reshape(-1, wrap1*MAX_SIZE, data.shape[2])
-			data, expo = quantize_unorm8(data)
-			if wrap1 > 1:
-				data = data.reshape(-1, MAX_SIZE, data.shape[2])
-				expo = expo.reshape(-1, MAX_SIZE, expo.shape[2])
-			imwrite(folder/f"{name}.exr", data[::-1])
-			imwrite(folder/f"{name}.q8.png", expo[::-1])
+		if id(data) in gptq_layers:
+			arrays = export_gptq(gptq_layers[id(data)])
+		elif quantizable:
+			arrays = export_custom_int8(data.cpu().numpy())
 		else:
-			if not force_write and (folder/f"{name}.exr").exists() and not (folder/f"{name}.q8.png").exists():
-				continue
-			(folder/f"{name}.exr").unlink(missing_ok=True)
-			(folder/f"{name}.q8.png").unlink(missing_ok=True)
+			arrays = (data.cpu().numpy(),)
+		for filename, array in zip(filenames, arrays):
+			print(f"\t\t{filename}\t{tuple(array.shape)}")
+			if len(array.shape) == 2:
+				array = pad_align(array, [1, 4]).reshape(array.shape[0], -1, 4)
+			elif len(array.shape) == 1:
+				array = array.reshape(1, -1, 4)
+			else:
+				raise KeyError(f"unexpected {array.shape}")
 
-			imwrite(folder/f"{name}.exr", data[::-1])
+			# wrap wide texture
+			MAX_SIZE = 16384
+			wrap1 = 1+(array.shape[1]-1) // MAX_SIZE
+			if wrap1 > 1:
+				array = pad_align(array, (1, MAX_SIZE, 1))
+				array = array.reshape(-1, MAX_SIZE, array.shape[2])
+			assert array.shape[0] <= MAX_SIZE and array.shape[1] <= MAX_SIZE
+
+			array = array[::-1] # flip Y for d3d
+			imwrite(folder/filename, array)
 
 def export_tokenizer(tokenizer, folder):
 	if tokenizer.is_fast:

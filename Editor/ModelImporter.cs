@@ -163,18 +163,23 @@ public class ModelImporter {
 		importer.SaveAndReimport();
 	}
 	static TextureImporterFormat CalcCompressionFormat(string path, DataType dtype) {
-		const int minSizeQ4 = 16*1024*1024;
-		return path.EndsWith(".png") ? TextureImporterFormat.RGBA32 :
-			dtype == DataType.Float32 ? TextureImporterFormat.RGBAFloat :
-			!File.Exists(Path.ChangeExtension(path, ".q8.png")) ? TextureImporterFormat.RGBAHalf :
-			dtype == DataType.Unorm4 ? (
-				GetFileSize(path) >= minSizeQ4 ? TextureImporterFormat.ARGB16 : TextureImporterFormat.RGBA32) :
-			dtype == DataType.Unorm8 ? TextureImporterFormat.RGBA32 :
-			TextureImporterFormat.RGBAHalf;
+		if(path.EndsWith(".q8.png"))
+			return TextureImporterFormat.RGBA32;
+		else if(path.EndsWith(".q8.exr"))
+			return TextureImporterFormat.RGBAFloat;
+		else if(File.Exists(Path.ChangeExtension(path, ".q8.png")) || File.Exists(Path.ChangeExtension(path, ".q8.exr"))) {
+			if(dtype == DataType.Unorm4)
+				return path.EndsWith(".png") ? TextureImporterFormat.ARGB16 : TextureImporterFormat.RGBA32;
+			else if(dtype == DataType.Unorm8)
+				return TextureImporterFormat.RGBA32;
+		}
+		if(path.EndsWith(".png"))
+			return TextureImporterFormat.RGBA32;
+		return dtype == DataType.Float16 ? TextureImporterFormat.RGBAHalf : TextureImporterFormat.RGBAFloat;
 	}
-	static long GetFileSize(string path) {
-		return new FileInfo(path).Length;
-	}
+	// static long GetFileSize(string path) {
+	// 	return new FileInfo(path).Length;
+	// }
 	static string[] GetTexturePaths(string folder) {
 		return AssetDatabase.FindAssets("t:Texture", new string[]{folder}).Select(
 			guid => AssetDatabase.GUIDToAssetPath(guid)).ToArray();

@@ -19,17 +19,13 @@ public class TensorNN {
 		SetTensor(mat, "_Input",  input);
 		if(weight0) {
 			SetTensor(mat, "_Weight0", weight0);
-			if(quants.TryGetValue(weight0, out var quant0)) {
-				SetTensor(mat, "_Scale0", quant0);
-				EnableOption(mat, Keyword.WEIGHT_QUANTIZED);
-			}
+			if(quants.TryGetValue(weight0, out var quant0))
+				SetTensorQuant(mat, "_Scale0", quant0);
 		}
 		if(weight1) {
 			SetTensor(mat, "_Weight1", weight1);
-			if(quants.TryGetValue(weight1, out var quant1)) {
-				SetTensor(mat, "_Scale1", quant1);
-				EnableOption(mat, Keyword.WEIGHT_QUANTIZED);
-			}
+			if(quants.TryGetValue(weight1, out var quant1))
+				SetTensorQuant(mat, "_Scale1", quant1);
 		}
 		if(transposeWeight)
 			EnableOption(mat, Keyword.WEIGHT_TRANSPOSED);
@@ -48,10 +44,8 @@ public class TensorNN {
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
 		SetTensor(mat, "_Weight", weight);
-		if(quants.TryGetValue(weight, out var quant)) {
-			EnableOption(mat, Keyword.WEIGHT_QUANTIZED);
-			SetTensor(mat, "_Scale", quant);
-		}
+		if(quants.TryGetValue(weight, out var quant))
+			SetTensorQuant(mat, "_Scale", quant);
 		if(transposeWeight)
 			EnableOption(mat, Keyword.WEIGHT_TRANSPOSED);
 		ctx.Blit(output, mat);
@@ -202,6 +196,11 @@ public class TensorNN {
 		mat.SetVector($"{name}Dim",  new Vector4(size.x, size.y, ctx.Wrap1(tex), ctx.Mipmap(tex)));
 		mat.SetVector($"{name}Off",  new Vector4(offset.x, offset.y, 0, 0));
 	}
+	void SetTensorQuant(Material mat, string name, Texture tex) {
+		SetTensor(mat, name, tex);
+		EnableOption(mat, UnityEngine.Experimental.Rendering.GraphicsFormatUtility.IsUNormFormat(tex.graphicsFormat)
+			? Keyword.WEIGHT_QUANTIZED_E8 : Keyword.WEIGHT_QUANTIZED_S24_Z8);
+	}
 	void EnableOption(Material mat, Keyword keyword) {
 		mat.EnableKeyword(keyword.ToString());
 	}
@@ -212,7 +211,8 @@ public class TensorNN {
 	public enum Keyword {
 		None = 0,
 		WEIGHT_TRANSPOSED,
-		WEIGHT_QUANTIZED,
+		WEIGHT_QUANTIZED_S24_Z8,
+		WEIGHT_QUANTIZED_E8,
 		INPUT_REDUCED,
 		REDUCE_SUMPOW,
 		REDUCE_MINMAX,

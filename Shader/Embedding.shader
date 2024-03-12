@@ -31,20 +31,23 @@ float4 main(uint2 pos) {
 	// weight[i,j] *= scale[i/4,j][i%4]
 	// output[i,j][jj] += transpose ? weight_k[j*4+jj,input[i,0][k]/4][input[i,0][k]%4] : weight_k[input[i,0][k],j][jj]
 
+	uint S0 = _Weight0Dim.y / _Scale0Dim.y;
+	uint S1 = _Weight1Dim.y / _Scale1Dim.y;
+
 	uint2 X = round(loadTensor(_InputTex, pos.x, 0, _InputDim.w).xy);
 	float4 O;
 #ifdef WEIGHT_TRANSPOSED
 	// NOTE: wide tensor is only supported on transposed weight to reduce overhead
 	// tested: error rate of per-channel block q8 is smaller than per-word
-	float4 offset0, scale0 = dequantizeScale(loadTensor(_Scale0Tex, pos.y, X[0]/4, _Scale0Dim), offset0, _Scale0Dim.x != 0);
-	float4 offset1, scale1 = dequantizeScale(loadTensor(_Scale1Tex, pos.y, X[1]/4, _Scale1Dim), offset1, _Scale1Dim.x != 0);
+	float4 offset0, scale0 = dequantizeScale(loadTensor(_Scale0Tex, pos.y, X[0]/4/S0, _Scale0Dim), offset0, _Scale0Dim.x != 0);
+	float4 offset1, scale1 = dequantizeScale(loadTensor(_Scale1Tex, pos.y, X[1]/4/S1, _Scale1Dim), offset1, _Scale1Dim.x != 0);
 	[unroll] for(int c=0; c<4; c++) {
 		O[c]  = dequantizeWeight(loadTensor(_Weight0Tex, pos.y*4+c, X[0]/4, _Weight0Dim), offset0[c])[X[0]%4] * scale0[c];
 		O[c] += dequantizeWeight(loadTensor(_Weight1Tex, pos.y*4+c, X[1]/4, _Weight1Dim), offset1[c])[X[1]%4] * scale1[c];
 	}
 #else
-	float4 offset0, scale0 = dequantizeScale(loadTensor(_Scale0Tex, X[0]/4, pos.y), offset0, _Scale0Dim.x != 0);
-	float4 offset1, scale1 = dequantizeScale(loadTensor(_Scale1Tex, X[1]/4, pos.y), offset1, _Scale1Dim.x != 0);
+	float4 offset0, scale0 = dequantizeScale(loadTensor(_Scale0Tex, X[0]/4, pos.y/S0), offset0, _Scale0Dim.x != 0);
+	float4 offset1, scale1 = dequantizeScale(loadTensor(_Scale1Tex, X[1]/4, pos.y/S1), offset1, _Scale1Dim.x != 0);
 	O  = dequantizeWeight(loadTensor(_Weight0Tex, X[0], pos.y), offset0[X[0]%4]) * scale0[X[0]%4];
 	O += dequantizeWeight(loadTensor(_Weight1Tex, X[1], pos.y), offset1[X[1]%4]) * scale1[X[1]%4];
 #endif
@@ -64,7 +67,7 @@ HLSLPROGRAM
 #pragma vertex vertQuad
 #pragma fragment frag
 #pragma shader_feature WEIGHT_TRANSPOSED
-#pragma shader_feature WEIGHT_QUANTIZED
+#pragma shader_feature _ WEIGHT_QUANTIZED_S24_Z8 WEIGHT_QUANTIZED_E8
 ENDHLSL
 	}
 }

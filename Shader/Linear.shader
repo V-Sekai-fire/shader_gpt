@@ -34,6 +34,7 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 	#endif
 	uint J = _OutputDim.y / H;
 	uint K = _InputDim.y  / H;
+	uint S = _WeightDim.y / _ScaleDim.y;
 	uint j = pos.y % J;
 	uint h = pos.y / J;
 	float4 O = 0;
@@ -41,7 +42,7 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 		float4 X = loadTensor(_InputTex, pos.x, h*K+k, _InputDim.w);
 		#ifdef WEIGHT_TRANSPOSED
 			// NOTE: wide tensor is only supported on transposed weight to reduce overhead
-			float4 offset, scale = dequantizeScale(loadTensor(_ScaleTex, k, h/D*J+j, _ScaleDim), offset);
+			float4 offset, scale = dequantizeScale(loadTensor(_ScaleTex, k, (h/D*J+j)/S, _ScaleDim), offset);
 			O += mul(scale * X, float4x4(
 				dequantizeWeight(loadTensor(_WeightTex, k*4+0, h/D*J+j, _WeightDim), offset[0]),
 				dequantizeWeight(loadTensor(_WeightTex, k*4+1, h/D*J+j, _WeightDim), offset[1]),
@@ -50,7 +51,7 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 		#else
 			// tested: error rate of per-out-channel block q8 is 10%~50% smaller than per-input-channel
 			// awq does this too: github.com/mit-han-lab/llm-awq/blob/main/awq/kernels/csrc/quantization/gemv_cuda.cu
-			float4 offset, scale = dequantizeScale(loadTensor(_ScaleTex, j, h/D*K+k, _ScaleDim.w), offset);
+			float4 offset, scale = dequantizeScale(loadTensor(_ScaleTex, j, (h/D*K+k)/S, _ScaleDim.w), offset);
 			O += scale * mul(float4x4(
 				dequantizeWeight(loadTensor(_WeightTex, j*4+0, h/D*K+k, _WeightDim.w), offset[0]),
 				dequantizeWeight(loadTensor(_WeightTex, j*4+1, h/D*K+k, _WeightDim.w), offset[1]),
@@ -74,7 +75,7 @@ HLSLPROGRAM
 #pragma vertex vertQuad
 #pragma fragment frag
 #pragma shader_feature WEIGHT_TRANSPOSED
-#pragma shader_feature WEIGHT_QUANTIZED
+#pragma shader_feature _ WEIGHT_QUANTIZED_S24_Z8 WEIGHT_QUANTIZED_E8
 ENDHLSL
 	}
 }

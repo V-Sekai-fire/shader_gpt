@@ -41,23 +41,38 @@ float4 silu(float4 x) {
 }
 
 float4 dequantizeWeight(float4 x, float offset) {
-#ifdef WEIGHT_QUANTIZED
-	return x - (x > offset ? 1 : 0);
+#if defined(WEIGHT_QUANTIZED_S24_Z8)
+	// weight == (weight_u8 - zero_u8) / 256 * scale_f24
+	return x*255 - offset;
+#elif defined(WEIGHT_QUANTIZED_E8)
+	// weight == (weight_u8 - (weight_u8 > max_u8 ? 255 : 0)) / 256 * exp2(exp_i8 * 0.5)
+	return x*255 - (x > offset ? 255 : 0);
 #else
 	return x;
 #endif
 }
-float4 dequantizeScale(float4 x, out float4 offset, bool enabled=true, float dstep=256, float estep=2) {
-#ifdef WEIGHT_QUANTIZED
+float4 dequantizeScale(float4 x, out float4 offset, bool enabled=true, float estep=2) {
+#if defined(WEIGHT_QUANTIZED_S24_Z8)
 	if(enabled) {
-		float4 byte = round(x*255 - (x > 0.5 ? 256 : 0));
-		float4 type = round(byte/85);
-		offset = type * 0.25 + 0.5;
-		return exp2((byte - type*85) / estep + log2(255/dstep));
+		uint4 u32 = asuint(x);
+		offset = u32 & 0xFF;
+		return asfloat(u32 &~ 0xFF) / 256;
 	}
-#endif
+	offset = 0;
+	return 1.0/255;
+#elif defined(WEIGHT_QUANTIZED_E8)
+	if(enabled) {
+		float4 i8 = round(x*255 - (x > 0.5 ? 256 : 0));
+		float4 type = round(i8/85);
+		offset = type * 0.25 + 0.5;
+		return exp2((i8 - type*85) / estep - log2(256));
+	}
 	offset = asfloat(0x7f7fffff); // infinity-1
+	return 1.0/255;
+#else
+	offset = 0;
 	return 1;
+#endif
 }
 
 void vertQuad(float2 uv : TEXCOORD0, out float4 vertex : SV_Position) {
