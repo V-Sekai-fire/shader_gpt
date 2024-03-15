@@ -51,24 +51,16 @@ float4 dequantizeWeight(float4 x, float offset) {
 	return x;
 #endif
 }
-float4 dequantizeScale(float4 x, out float4 offset, bool enabled=true, float estep=2) {
+float4 dequantizeScale(float4 x, out float4 offset, float estep=2) {
 #if defined(WEIGHT_QUANTIZED_S24_Z8)
-	if(enabled) {
-		uint4 u32 = asuint(x);
-		offset = u32 & 0xFF;
-		return asfloat(u32 &~ 0xFF) / 256;
-	}
-	offset = 0;
-	return 1.0/255;
+	uint4 u32 = asuint(x);
+	offset = u32 & 0xFF;
+	return asfloat(u32 &~ 0xFF) / 256;
 #elif defined(WEIGHT_QUANTIZED_E8)
-	if(enabled) {
-		float4 i8 = round(x*255 - (x > 0.5 ? 256 : 0));
-		float4 type = round(i8/85);
-		offset = type * 0.25 + 0.5;
-		return exp2((i8 - type*85) / estep - log2(256));
-	}
-	offset = asfloat(0x7f7fffff); // infinity-1
-	return 1.0/255;
+	float4 i8 = round(x*255 - (x > 0.5 ? 256 : 0));
+	float4 type = round(i8/85);
+	offset = type * 0.25 + 0.5;
+	return exp2((i8 - type*85) / estep - log2(256));
 #else
 	offset = 0;
 	return 1;

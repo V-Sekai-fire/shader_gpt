@@ -58,8 +58,8 @@ public class GPT2 : GPTBase {
 
 		var keys   = ctx.PersistentGPUTensor($"{path}.k", maxLength, ctx.Size1(key), dtype:nn.dataType);
 		var values = ctx.PersistentGPUTensor($"{path}.v", maxLength, ctx.Size1(value), dtype:nn.dataType);
-		BatchRelease(nn.Scatter(keys,   input_ids, MarkRelease(key),   indexMask:new Vector2(0,1)));
-		BatchRelease(nn.Scatter(values, input_ids, MarkRelease(value), indexMask:new Vector2(0,1)));
+		BatchRelease(nn.Scatter(keys,   input_ids, MarkRelease(key),   chan:1));
+		BatchRelease(nn.Scatter(values, input_ids, MarkRelease(value), chan:1));
 
 		var window_size = config.n_positions;
 		var norm_factor = 1f / Mathf.Sqrt(ctx.Size1(query)*4 / config.n_head);
@@ -83,7 +83,9 @@ public class GPT2 : GPTBase {
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(mlp_states)));
 	}
 	Texture GPT2Model(Texture input_ids, string path) {
-		var hidden_states = nn.Embedding(input_ids, parameters[$"{path}.wte.weight.T"], parameters[$"{path}.wpe.weight.T"], transposeWeight:true);
+		var inputs_embeds   = nn.Embedding(input_ids, parameters[$"{path}.wte.weight.T"], transposeWeight:true, chan:0);
+		var position_embeds = nn.Embedding(input_ids, parameters[$"{path}.wpe.weight.T"], transposeWeight:true, chan:1);
+		var hidden_states   = BatchRelease(nn.Fusion(MarkRelease(inputs_embeds), add:MarkRelease(position_embeds)));
 		for(int i=0; i<config.n_layer; i++)
 			GPT2Block(ref hidden_states, input_ids, path:$"{path}.h.{i}");
 		hidden_states = BatchRelease(nn.GroupNorm(MarkRelease(hidden_states), parameters[$"{path}.ln_f.weight"], parameters[$"{path}.ln_f.bias"], config.layer_norm_epsilon));

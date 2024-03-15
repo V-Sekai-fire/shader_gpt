@@ -6,20 +6,21 @@ Properties {
 	_WeightDim("_WeightDim", Vector) = (0, 0, 0, 0)
 	_BiasDim  ("_BiasDim",   Vector) = (0, 0, 0, 0)
 	_RotaryDim("_RotaryDim", Vector) = (0, 0, 0, 0)
-	[HideInInspector]_OutputTex("_OutputTex",2D) = "black" {}
-	[NoScaleOffset] _InputTex ("_InputTex",  2D) = "black" {}
-	[NoScaleOffset] _ReduceTex("_ReduceTex", 2D) = "black" {}
-	[NoScaleOffset] _OffsetTex("_OffsetTex", 2D) = "black" {}
-	[NoScaleOffset] _WeightTex("_WeightTex", 2D) = "black" {}
-	[NoScaleOffset] _BiasTex  ("_BiasTex",   2D) = "black" {}
-	[NoScaleOffset] _RotaryTex("_RotaryTex", 2D) = "black" {}
+	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
+	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
+	[NoScaleOffset]  _ReduceTex("_ReduceTex", 2D) = "black" {}
+	[NoScaleOffset]  _OffsetTex("_OffsetTex", 2D) = "black" {}
+	[NoScaleOffset]  _WeightTex("_WeightTex", 2D) = "black" {}
+	[NoScaleOffset]  _BiasTex  ("_BiasTex",   2D) = "black" {}
+	[NoScaleOffset]  _RotaryTex("_RotaryTex", 2D) = "black" {}
 	_InputOff ("_InputOff",  Vector) = (0, 0, 0, 0)
 	_OutputOff("_OutputOff", Vector) = (0, 0, 0, 0)
 	_IndexRange("_IndexRange", Vector) = (0, 1048576, 0, 0)
-	_Eps("_Eps", Float) = 0
+	_Eps  ("_Eps",   Float) = 0
 	_Scale("_Scale", Float) = 1
-	_Weight("_Weight", Vector) = (1, 1, 1, 1)
-	_Bias  ("_Bias",   Vector) = (0, 0, 0, 0)
+	_Weight ("_Weight",  Vector) = (1, 1, 1, 1)
+	_Bias   ("_Bias",    Vector) = (0, 0, 0, 0)
+	_Default("_Default", Vector) = (0, 0, 0, 0)
 }
 SubShader {
 	Tags { "PreviewType"="Plane" } // prevent freezing Unity editor
@@ -41,9 +42,10 @@ uniform float _Eps;
 uniform float _Scale;
 uniform float4 _Weight;
 uniform float4 _Bias;
+uniform float4 _Default;
 
 float4 main(uint2 pos) {
-	// output[i,j] = func(input[i,j])
+	// output[i,j] = act(reduce(input[i,j]) * weight + bias)
 
 	float4 X = loadTensor(_InputTex, _InputOff+pos, _InputDim);
 	float4 R = loadTensor(_ReduceTex, pos.xy*_ReduceDim.xy/_InputDim.xy, _ReduceDim);
@@ -52,11 +54,11 @@ float4 main(uint2 pos) {
 	int2 range = _IndexRange.xy + dot(_IndexRange.zw, loadTensor(_OffsetTex, pos.x, 0).xy);
 	bool4 mask = range.x <= index && index < range.y;
 	#if defined(FUNC_GROUPNORM)
-		O = mask ? (X*R[0]-R[1]) * rsqrt(_Eps*(R[0]*R[0]) + max(0, R[2]*R[0]-R[1]*R[1])) : 0; // R is sum of powers
+		O = (X*R[0]-R[1]) * rsqrt(_Eps*(R[0]*R[0]) + max(0, R[2]*R[0]-R[1]*R[1])); // R is sum of powers
 	#elif defined(FUNC_NORMALIZE_L1)
-		O = mask ? X / R[1] : 0; // R is sum of powers
+		O = X / R[1]; // R is sum of powers
 	#elif defined(FUNC_SOFTMAX_LINF)
-		O = mask ? saturate(exp((X - R.y) * _Scale)) : 0; // R is minmax
+		O = saturate(exp((X - R.y) * _Scale)); // R is minmax
 	#elif defined(FUNC_GUMBEL)
 		uint4 seed = uint4(pos.xy, asuint(_Time.y), asuint(_SinTime.w));
 		O = -log(-log((pcg4d(seed)>>9u)/8388608.0 + 0.5/8388608.0)); // be careful to avoid input 0,1
@@ -78,6 +80,7 @@ float4 main(uint2 pos) {
 		}
 	#endif
 
+	O = mask ? O : _Default;
 	O *= _Weight;
 	if(_WeightDim.x)
 		O *= loadTensor(_WeightTex, pos.xy*_WeightDim.xy/_InputDim.xy, _WeightDim);

@@ -12,23 +12,17 @@ public class TensorNN {
 	public int linearMipmap = 2; // 3 has higher occupancy but similar gpu time
 	public int reduceSplit = 64;
 
-	public Texture Embedding(Texture input, Texture weight0, Texture weight1=null, bool transposeWeight=false) {
-		var output = ctx.GPUTensor(ctx.Size0(input), transposeWeight ? ctx.Size0(weight0??weight1)/4 : ctx.Size1(weight0??weight1), dtype:dataType);
+	public Texture Embedding(Texture input, Texture weight, bool transposeWeight=false, int chan=0) {
+		var output = ctx.GPUTensor(ctx.Size0(input), transposeWeight ? ctx.Size0(weight)/4 : ctx.Size1(weight), dtype:dataType);
 		var mat = ctx.Operator(kernels["Embedding"]);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
-		if(weight0) {
-			SetTensor(mat, "_Weight0", weight0);
-			if(quants.TryGetValue(weight0, out var quant0))
-				SetTensorQuant(mat, "_Scale0", quant0);
-		}
-		if(weight1) {
-			SetTensor(mat, "_Weight1", weight1);
-			if(quants.TryGetValue(weight1, out var quant1))
-				SetTensorQuant(mat, "_Scale1", quant1);
-		}
+		SetTensor(mat, "_Weight", weight);
+		if(quants.TryGetValue(weight, out var quant))
+			SetTensorQuant(mat, "_Scale", quant);
 		if(transposeWeight)
 			EnableOption(mat, Keyword.WEIGHT_TRANSPOSED);
+		mat.SetVector("_InputChan", new Vector4(chan==0?1:0, chan==1?1:0, chan==2?1:0, chan==3?1:0));
 		ctx.Blit(output, mat);
 		return output;
 	}
@@ -125,13 +119,18 @@ public class TensorNN {
 		ctx.Release(reduce);
 		return output;
 	}
-	public Texture Fusion(Texture input, float scale=1f, Texture mul=default, Texture add=default, Keyword func=default) {
+	public Texture Fusion(Texture input, float scale=1f, Texture mul=default, Texture add=default, Keyword func=default, Vector4? indexRange=default, Texture rangeOffset=default, Vector4 defaultValue=default) {
 		Debug.Assert(!mul || (ctx.Size0(input) % ctx.Size0(mul) == 0 && ctx.Size1(input) % ctx.Size1(mul) == 0));
 		Debug.Assert(!add || (ctx.Size0(input) % ctx.Size0(add) == 0 && ctx.Size1(input) % ctx.Size1(add) == 0));
 		var output = ctx.GPUTensor(ctx.Size0(input), ctx.Size1(input), dtype:dataType);
 		var mat = ctx.Operator(kernels["Function"]);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
+		if(indexRange != default)
+			mat.SetVector("_IndexRange", indexRange.Value);
+		if(rangeOffset)
+			SetTensor(mat, "_Offset", rangeOffset);
+		mat.SetVector("_Default", defaultValue);
 		mat.SetVector("_Weight", scale * Vector4.one);
 		if(mul)
 			SetTensor(mat, "_Weight", mul);
@@ -151,12 +150,13 @@ public class TensorNN {
 		ctx.Blit(output, mat);
 		return output;
 	}
-	public Texture Scatter(RenderTexture output, Texture index, Texture src, Vector2 indexMask) {
+	public Texture Scatter(RenderTexture output, Texture index, Texture src, int chan=0) {
+		Debug.Assert(ctx.Size0(index) == ctx.Size0(src));
 		var mat = ctx.Operator(kernels["Function"]);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  src);
 		SetTensor(mat, "_Offset", index);
-		mat.SetVector("_OutputOff",  new Vector4(0, 0, indexMask.x, indexMask.y));
+		mat.SetVector("_OutputOff",  new Vector4(0, 0, chan==0?1:0, chan==1?1:0));
 		ctx.Blit(output, mat);
 		return output;
 	}

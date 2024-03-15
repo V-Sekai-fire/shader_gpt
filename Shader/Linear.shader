@@ -4,10 +4,10 @@ Properties {
 	_InputDim ("_InputDim",  Vector) = (1, 1, 1, 0)
 	_WeightDim("_WeightDim", Vector) = (1, 1, 1, 0)
 	_ScaleDim ("_ScaleDim",  Vector) = (1, 1, 1, 0)
-	[HideInInspector]_OutputTex("_OutputTex",2D) = "black" {}
-	[NoScaleOffset] _InputTex ("_InputTex",  2D) = "black" {}
-	[NoScaleOffset] _WeightTex("_WeightTex", 2D) = "black" {}
-	[NoScaleOffset] _ScaleTex ("_ScaleTex",  2D) = "black" {}
+	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
+	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
+	[NoScaleOffset]  _WeightTex("_WeightTex", 2D) = "black" {}
+	[NoScaleOffset]  _ScaleTex ("_ScaleTex",  2D) = "black" {}
 }
 SubShader {
 	Tags { "PreviewType"="Plane" } // prevent freezing Unity editor
@@ -22,7 +22,6 @@ Texture2D<float4> _ScaleTex;  uint4 _ScaleDim;
 
 float4 main(uint2 pos, uint threadId, uint groupSize) {
 	// torch.nn.functional.linear(bias=None) with multi-head support
-	// weight[i,j] *= scale[i/4,j][i%4]
 	// output[i,h*J+j][jj] += input[i,h*K+k][kk] * (transpose ? weight[k*4+kk,h/D*J+j][jj] : weight[j*4+jj,h/D*K+k][kk])
 
 	#ifdef WEIGHT_TRANSPOSED

@@ -63,15 +63,15 @@ public class Llama : GPTBase {
 			value = BatchRelease(nn.Fusion(MarkRelease(value), add:bias));
 
 		parameters.TryGetValue(Regex.Replace($"{path}.rotary_emb.weight", @"[.]\d+[.]", ".0."), out var rotary_emb);
-		var rotary = nn.Embedding(input_ids, null, rotary_emb ?? parameters[$"{path}.rotary_emb.weight"]);
+		var rotary = nn.Embedding(input_ids, rotary_emb ?? parameters[$"{path}.rotary_emb.weight"], chan:1);
 		query = BatchRelease(nn.Rotary(MarkRelease(query), rotary, groups:config.num_attention_heads));
 		key   = BatchRelease(nn.Rotary(MarkRelease(key),   rotary, groups:config.num_key_value_heads));
 		ctx.Release(rotary);
 
 		var keys   = ctx.PersistentGPUTensor($"{path}.k", maxLength, ctx.Size1(key), dtype:nn.dataType);
 		var values = ctx.PersistentGPUTensor($"{path}.v", maxLength, ctx.Size1(value), dtype:nn.dataType);
-		BatchRelease(nn.Scatter(keys,   input_ids, MarkRelease(key),   indexMask:new Vector2(0,1)));
-		BatchRelease(nn.Scatter(values, input_ids, MarkRelease(value), indexMask:new Vector2(0,1)));
+		BatchRelease(nn.Scatter(keys,   input_ids, MarkRelease(key),   chan:1));
+		BatchRelease(nn.Scatter(values, input_ids, MarkRelease(value), chan:1));
 
 		var window_size = config.sliding_window == 0 ? config.max_position_embeddings : config.sliding_window;
 		var norm_factor = 1f / Mathf.Sqrt(ctx.Size1(query)*4 / config.num_attention_heads);

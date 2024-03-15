@@ -2,9 +2,9 @@ Shader "GPT/Reduce" {
 Properties {
 	_OutputDim("_OutputDim", Vector) = (1, 1, 1, 0)
 	_InputDim ("_InputDim",  Vector) = (1, 1, 1, 0)
-	[HideInInspector]_OutputTex("_OutputTex",2D) = "black" {}
-	[NoScaleOffset] _InputTex ("_InputTex",  2D) = "black" {}
-	[NoScaleOffset] _OffsetTex("_OffsetTex", 2D) = "black" {}
+	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
+	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
+	[NoScaleOffset]  _OffsetTex("_OffsetTex", 2D) = "black" {}
 	_IndexRange("_IndexRange", Vector) = (0, 1048576, 0, 0)
 	_IndexMod  ("_IndexMod",   Int) = 1
 	_Linear0("_Linear0", Vector) = (1, 0, 0, 0)
@@ -37,10 +37,10 @@ float max4(float4 v) {
 }
 
 float4 main(uint2 pos, uint threadId, uint groupSize) {
-	// torch.mean, torch.aminmax
-	// output[i,j][e] = torch.mean(pow(input[i,j*K+k][c], e), dim=(k,c))
-	// output[i,j].xz = torch.min(min4(input[i,j*K+k][c], dim=(k,c))
-	// output[i,j].yw = torch.max(min4(input[i,j*K+k][c], dim=(k,c))
+	// torch.sum, torch.aminmax
+	// output[i,j][e] = torch.sum(pow(input[i,j*K+k][c], e), dim=(k,c))
+	// output[i,j].xz = torch.min(input[i,j*K+k][c], dim=(k,c))
+	// output[i,j].yw = torch.max(input[i,j*K+k][c], dim=(k,c))
 
 	uint K = 1+(_InputDim.y-1)/_OutputDim.y, jK = pos.y*K;
 	int2 range = _IndexRange.xy + dot(_IndexRange.zw, loadTensor(_OffsetTex, pos.x, 0).xy);
