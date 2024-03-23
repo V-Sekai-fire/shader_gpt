@@ -1,7 +1,8 @@
 Shader "GPT/Reduce" {
 Properties {
-	_OutputDim("_OutputDim", Vector) = (1, 1, 1, 0)
-	_InputDim ("_InputDim",  Vector) = (1, 1, 1, 0)
+	_OutputDim("_OutputDim", Vector) = (1, 1, 0, 0)
+	_InputDim ("_InputDim",  Vector) = (1, 1, 0, 0)
+	_OffsetDim("_OffsetDim", Vector) = (0, 0, 0, 0)
 	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
 	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
 	[NoScaleOffset]  _OffsetTex("_OffsetTex", 2D) = "black" {}
@@ -19,8 +20,8 @@ HLSLINCLUDE
 #include "Common.hlsl"
 
 uint4 _OutputDim;
-Texture2D<float4> _InputTex; uint4 _InputDim;
-Texture2D<float4> _OffsetTex;
+Texture2D<float4> _InputTex;  uint4 _InputDim;
+Texture2D<float4> _OffsetTex; uint4 _OffsetDim;
 uniform float4 _IndexRange;
 uniform uint   _IndexMod;
 uniform float4 _Linear0;
@@ -43,7 +44,7 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 	// output[i,j].yw = torch.max(input[i,j*K+k][c], dim=(k,c))
 
 	uint K = 1+(_InputDim.y-1)/_OutputDim.y, jK = pos.y*K;
-	int2 range = _IndexRange.xy + dot(_IndexRange.zw, loadTensor(_OffsetTex, pos.x, 0).xy);
+	int2 range = _IndexRange.xy + dot(_IndexRange.zw, LOAD_TENSOR(_Offset, uint2(pos.x, 0)).xy);
 	#if defined(REDUCE_SUMPOW)
 		float4 O = 0;
 	#elif defined(REDUCE_MINMAX)
@@ -51,7 +52,7 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 	#endif
 	K = min(K, uint(max(0, int(_InputDim.y-jK)))); // prevent out-of-bound read of _InputTex
 	for(uint k=threadId; k<K; k+=groupSize) {
-		float4 X = loadTensor(_InputTex, pos.x, jK+k, _InputDim);
+		float4 X = LOAD_TENSOR(_Input, uint2(pos.x, jK+k));
 		#if !defined(INPUT_REDUCED)
 			int4 index = (jK%_IndexMod+k)*4 + uint4(0,1,2,3);
 			bool4 mask = range.x <= index && index < range.y;
@@ -86,7 +87,7 @@ float4 frag(float4 screenPos : SV_Position) : SV_Target {
 	#if defined(REDUCE_SUMPOW)
 		uint4 pos = getThreadIdAndGroupSize(screenPos, _OutputDim);
 	#else
-		uint4 pos = uint4(getThreadId(screenPos), 0, 1);
+		uint4 pos = uint4(getThreadId(screenPos, _OutputDim), 0, 1);
 	#endif
 	if(any(pos.xy >= _OutputDim.xy))
 		discard;

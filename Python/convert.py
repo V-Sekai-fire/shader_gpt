@@ -24,24 +24,25 @@ def imwrite(path, data):
 def pad_align(data, align):
 	return np.pad(data, [(0,(-n)%m) for n, m in zip(data.shape, align)])
 
-def export_custom_int8(data, asym=True, group_size=4, *, estep=2):
-	presets = [(-127, +127, 0)] + ([(-63, +191, +85), (-191, +63, -85)] if asym else [])
+def export_custom_int8(data, asym=True, group_size=4, *, estep=2, exact=False):
+	presets = [(-127/256, +127/256, 0)] + ([(-63/256, +191/256, +85), (-191/256, +63/256, -85)] if asym else [])
 	bmin, bmax, eoff = np.array(presets, dtype=data.dtype).T[..., None, None, None]
 
 	shape1 = (data.shape[1]+3)&~3
 	data = pad_align(data, [1, group_size]).reshape(data.shape[0], -1, group_size)
 
-	dmin = np.minimum(0, np.amin(data, axis=-1, keepdims=True))
-	dmax = np.maximum(0, np.amax(data, axis=-1, keepdims=True))
-	expo = np.clip(np.ceil(np.log2(np.maximum(dmin/(bmin/256), dmax/(bmax/256)))*estep), -42, 42)
+	expo = np.clip(np.ceil(estep*np.log2(np.maximum(
+		np.minimum(0, np.amin(data, axis=-1, keepdims=True))/bmin,
+		np.maximum(0, np.amax(data, axis=-1, keepdims=True))/bmax))), -42, 42)
 
-	scale = np.exp2(expo/estep)
-	mant = np.clip(data/scale, bmin/256, bmax/256).astype(data.dtype)
+	scale = np.exp2(expo/estep, dtype=(np.float32 if exact else data.dtype))
+	mant = np.clip(data/scale, bmin, bmax)
 	qerr = np.amax(np.abs(np.round(mant*256)/256 * scale - data), axis=-1, keepdims=True)
 	best = np.argmin(qerr, axis=0, keepdims=True)
 	expo = np.take_along_axis(expo+eoff, best, axis=0)[0]
 	mant = np.take_along_axis(mant, best, axis=0)[0]
-	mant = np.where(mant < -1/512, 1+mant/(255/256), mant/(255/256))
+	mant /= 255/256
+	mant += np.where(mant < -1/510, 1, 0)
 
 	mant = mant.reshape(mant.shape[0], -1)[:, :shape1]
 	expo = pad_align(expo, [4, 1, 1]).reshape(-1, 4, expo.shape[1]).transpose(0,2,1)
@@ -205,13 +206,14 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 			else:
 				raise KeyError(f"unexpected {array.shape}")
 
-			# wrap wide texture
+			# tile wide texture
 			MAX_SIZE = 16384
-			wrap1 = 1+(array.shape[1]-1) // MAX_SIZE
-			if wrap1 > 1:
-				array = pad_align(array, (1, MAX_SIZE, 1))
-				array = array.reshape(-1, MAX_SIZE, array.shape[2])
-			assert array.shape[0] <= MAX_SIZE and array.shape[1] <= MAX_SIZE
+			if array.shape[1] > MAX_SIZE:
+				lvl = 0
+				while ((array.shape[1]-1)>>lvl)+1 > MAX_SIZE:
+					lvl += 1
+				array = pad_align(array, [1, 1<<lvl, 1]).reshape(array.shape[0], -1, 1<<lvl, array.shape[2])\
+					.transpose(0, 2, 1, 3).reshape(array.shape[0]<<lvl, -1, array.shape[2])
 
 			array = array[::-1] # flip Y for d3d
 			imwrite(folder/filename, array)

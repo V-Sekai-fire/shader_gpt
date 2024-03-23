@@ -67,37 +67,32 @@ float4 dequantizeScale(float4 x, out float4 offset, float estep=2) {
 #endif
 }
 
-void vertQuad(float2 uv : TEXCOORD0, out float4 vertex : SV_Position) {
-	vertex = float4(uv*2-1, UNITY_NEAR_CLIP_VALUE, 1);
+void vertQuad(uint vertexID : SV_VertexID, out float4 posCS : SV_Position) {
+	const float2 trigUV[3] = {{0,0},{0,1},{1,0}};
+	// avoid inactive wave lanes by drawing fullscreen triangle 
+	posCS = float4(trigUV[min(2,vertexID)]*4-1, 0, 1);
+	#if UNITY_REVERSED_Z
+		posCS.y *= -1;
+	#endif
 }
-uint2 getThreadId(float4 screenPos) {
-	return floor(screenPos.yx);
-}
+
 uint2 getThreadId(float4 screenPos, uint4 dim) {
-	uint2 pos = getThreadId(screenPos);
-	pos.y += pos.x % dim.z * 16384;
-	pos.x /= dim.z;
+	uint2 pos = floor(screenPos.yx);
+	pos.y = (pos.y<<dim.z) | (pos.x & ((1<<dim.z)-1));
+	pos.x >>= dim.z;
 	return pos;
 }
 uint4 getThreadIdAndGroupSize(float4 screenPos, uint4 dim) {
-	uint2 pos = getThreadId(screenPos);
+	uint2 pos = floor(screenPos.yx);
 	uint threadId = dot(pos & ((1<<dim.w)-1), uint2(1, 1<<dim.w));
 	uint groupSize = (1<<dim.w)<<dim.w;
 	pos >>= dim.w;
-	pos.y += pos.x % dim.z * 16384;
-	pos.x /= dim.z;
+	pos.y = (pos.y<<dim.z) | (pos.x & ((1<<dim.z)-1));
+	pos.x >>= dim.z;
 	return uint4(pos, threadId, groupSize);
 }
 
-float4 loadTensor(Texture2D<float4> tex, uint i, uint j, uint lod=0) {
-	return tex.mips[lod][uint2(j,i)];
+float4 loadTensor(Texture2D<float4> tex, uint4 dim, uint2 ij) {
+	return tex.mips[dim.w][uint2(ij.y>>dim.z, (ij.y & ((1<<dim.z)-1)) | (ij.x<<dim.z))];
 }
-float4 loadTensor(Texture2D<float4> tex, uint i, uint j, uint4 dim) {
-	return tex.mips[dim.w][uint2(j%16384,i*dim.z+j/16384)];
-}
-float4 loadTensor(Texture2D<float4> tex, uint2 ij) {
-	return loadTensor(tex, ij.x, ij.y);
-}
-float4 loadTensor(Texture2D<float4> tex, uint2 ij, uint4 dim) {
-	return loadTensor(tex, ij.x, ij.y, dim);
-}
+#define LOAD_TENSOR(name, ij) loadTensor(name##Tex, name##Dim, ij)

@@ -1,8 +1,9 @@
 Shader "GPT/Function" {
 Properties {
-	_OutputDim("_OutputDim", Vector) = (1, 1, 1, 0)
-	_InputDim ("_InputDim",  Vector) = (1, 1, 1, 0)
-	_ReduceDim("_ReduceDim", Vector) = (1, 1, 1, 0)
+	_OutputDim("_OutputDim", Vector) = (1, 1, 0, 0)
+	_InputDim ("_InputDim",  Vector) = (1, 1, 0, 0)
+	_ReduceDim("_ReduceDim", Vector) = (1, 1, 0, 0)
+	_OffsetDim("_OffsetDim", Vector) = (0, 0, 0, 0)
 	_WeightDim("_WeightDim", Vector) = (0, 0, 0, 0)
 	_BiasDim  ("_BiasDim",   Vector) = (0, 0, 0, 0)
 	_RotaryDim("_RotaryDim", Vector) = (0, 0, 0, 0)
@@ -31,7 +32,7 @@ HLSLINCLUDE
 uint4 _OutputDim;
 Texture2D<float4> _InputTex;  uint4 _InputDim;
 Texture2D<float4> _ReduceTex; uint4 _ReduceDim;
-Texture2D<float4> _OffsetTex;
+Texture2D<float4> _OffsetTex; uint4 _OffsetDim;
 Texture2D<float4> _WeightTex; uint4 _WeightDim;
 Texture2D<float4> _BiasTex;   uint4 _BiasDim;
 Texture2D<float4> _RotaryTex; uint4 _RotaryDim;
@@ -47,11 +48,11 @@ uniform float4 _Default;
 float4 main(uint2 pos) {
 	// output[i,j] = act(reduce(input[i,j]) * weight + bias)
 
-	float4 X = loadTensor(_InputTex, _InputOff+pos, _InputDim);
-	float4 R = loadTensor(_ReduceTex, pos.xy*_ReduceDim.xy/_InputDim.xy, _ReduceDim);
+	float4 X = LOAD_TENSOR(_Input, _InputOff+pos);
+	float4 R = LOAD_TENSOR(_Reduce, pos.xy*_ReduceDim.xy/_InputDim.xy);
 	float4 O = X;
 	int4 index = pos.y%(_InputDim.y/_ReduceDim.y)*4 + uint4(0,1,2,3);
-	int2 range = _IndexRange.xy + dot(_IndexRange.zw, loadTensor(_OffsetTex, pos.x, 0).xy);
+	int2 range = _IndexRange.xy + dot(_IndexRange.zw, LOAD_TENSOR(_Offset, uint2(pos.x, 0)).xy);
 	bool4 mask = range.x <= index && index < range.y;
 	#if defined(FUNC_GROUPNORM)
 		O = (X*R[0]-R[1]) * rsqrt(_Eps*(R[0]*R[0]) + max(0, R[2]*R[0]-R[1]*R[1])); // R is sum of powers
@@ -67,15 +68,15 @@ float4 main(uint2 pos) {
 		uint dim = _RotaryDim.y/2;
 		if(j < dim) {
 			float4 reX = X;
-			float4 imX = loadTensor(_InputTex, _InputOff+pos+uint2(0,dim), _InputDim);
-			float4 reY = loadTensor(_RotaryTex, pos.x, j);
-			float4 imY = loadTensor(_RotaryTex, pos.x, j+dim);
+			float4 imX = LOAD_TENSOR(_Input, _InputOff+pos+uint2(0,dim));
+			float4 reY = LOAD_TENSOR(_Rotary, uint2(pos.x, j));
+			float4 imY = LOAD_TENSOR(_Rotary, uint2(pos.x, j+dim));
 			O = reX*reY - imX*imY; // real part
 		} else if(j < dim*2) {
 			float4 imX = X;
-			float4 reX = loadTensor(_InputTex, _InputOff+pos-uint2(0,dim), _InputDim);
-			float4 imY = loadTensor(_RotaryTex, pos.x, j);
-			float4 reY = loadTensor(_RotaryTex, pos.x, j-dim);
+			float4 reX = LOAD_TENSOR(_Input, _InputOff+pos-uint2(0,dim));
+			float4 imY = LOAD_TENSOR(_Rotary, uint2(pos.x, j));
+			float4 reY = LOAD_TENSOR(_Rotary, uint2(pos.x, j-dim));
 			O = reX*imY + imX*reY; // imaginary part
 		}
 	#endif
@@ -83,10 +84,10 @@ float4 main(uint2 pos) {
 	O = mask ? O : _Default;
 	O *= _Weight;
 	if(_WeightDim.x)
-		O *= loadTensor(_WeightTex, pos.xy*_WeightDim.xy/_InputDim.xy, _WeightDim);
+		O *= LOAD_TENSOR(_Weight, pos.xy*_WeightDim.xy/_InputDim.xy);
 	O += _Bias;
 	if(_BiasDim.x)
-		O += loadTensor(_BiasTex, pos.xy*_BiasDim.xy/_InputDim.xy, _BiasDim);
+		O += LOAD_TENSOR(_Bias, pos.xy*_BiasDim.xy/_InputDim.xy);
 
 	#if defined(FUNC_GELU)
 		O = gelu(O);
@@ -99,7 +100,7 @@ float4 main(uint2 pos) {
 }
 float4 frag(float4 screenPos : SV_Position) : SV_Target {
 	uint2 pos = getThreadId(screenPos, _OutputDim);
-	pos -= int2(dot(_OutputOff.zw, loadTensor(_OffsetTex, 0, 0).xy) + _OutputOff.x, _OutputOff.y);
+	pos -= int2(dot(_OutputOff.zw, LOAD_TENSOR(_Offset, uint2(0, 0)).xy) + _OutputOff.x, _OutputOff.y);
 	if(!all(0 <= int2(pos) && int2(pos) < int2(_OutputDim.xy)))
 		discard;
 	return main(pos);

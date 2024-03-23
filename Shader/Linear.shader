@@ -1,9 +1,9 @@
 Shader "GPT/Linear" {
 Properties {
-	_OutputDim("_OutputDim", Vector) = (1, 1, 1, 0)
-	_InputDim ("_InputDim",  Vector) = (1, 1, 1, 0)
-	_WeightDim("_WeightDim", Vector) = (1, 1, 1, 0)
-	_ScaleDim ("_ScaleDim",  Vector) = (1, 1, 1, 0)
+	_OutputDim("_OutputDim", Vector) = (1, 1, 0, 0)
+	_InputDim ("_InputDim",  Vector) = (1, 1, 0, 0)
+	_WeightDim("_WeightDim", Vector) = (1, 1, 0, 0)
+	_ScaleDim ("_ScaleDim",  Vector) = (1, 1, 0, 0)
 	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
 	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
 	[NoScaleOffset]  _WeightTex("_WeightTex", 2D) = "black" {}
@@ -38,24 +38,23 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 	uint h = pos.y / J;
 	float4 O = 0;
 	for(uint k=threadId; k<K; k+=groupSize) {
-		float4 X = loadTensor(_InputTex, pos.x, h*K+k, _InputDim.w);
+		float4 X = LOAD_TENSOR(_Input, uint2(pos.x, h*K+k));
 		#ifdef WEIGHT_TRANSPOSED
-			// NOTE: wide tensor is only supported on transposed weight to reduce overhead
-			float4 offset, scale = dequantizeScale(loadTensor(_ScaleTex, k, (h/D*J+j)/S, _ScaleDim), offset);
+			float4 offset, scale = dequantizeScale(LOAD_TENSOR(_Scale, uint2(k, (h/D*J+j)/S)), offset);
 			O += mul(scale * X, float4x4(
-				dequantizeWeight(loadTensor(_WeightTex, k*4+0, h/D*J+j, _WeightDim), offset[0]),
-				dequantizeWeight(loadTensor(_WeightTex, k*4+1, h/D*J+j, _WeightDim), offset[1]),
-				dequantizeWeight(loadTensor(_WeightTex, k*4+2, h/D*J+j, _WeightDim), offset[2]),
-				dequantizeWeight(loadTensor(_WeightTex, k*4+3, h/D*J+j, _WeightDim), offset[3])));
+				dequantizeWeight(LOAD_TENSOR(_Weight, uint2(k*4+0, h/D*J+j)), offset[0]),
+				dequantizeWeight(LOAD_TENSOR(_Weight, uint2(k*4+1, h/D*J+j)), offset[1]),
+				dequantizeWeight(LOAD_TENSOR(_Weight, uint2(k*4+2, h/D*J+j)), offset[2]),
+				dequantizeWeight(LOAD_TENSOR(_Weight, uint2(k*4+3, h/D*J+j)), offset[3])));
 		#else
 			// tested: error rate of per-out-channel block q8 is 10%~50% smaller than per-input-channel
 			// awq does this too: github.com/mit-han-lab/llm-awq/blob/main/awq/kernels/csrc/quantization/gemv_cuda.cu
-			float4 offset, scale = dequantizeScale(loadTensor(_ScaleTex, j, (h/D*K+k)/S, _ScaleDim.w), offset);
+			float4 offset, scale = dequantizeScale(LOAD_TENSOR(_Scale, uint2(j, (h/D*K+k)/S)), offset);
 			O += scale * mul(float4x4(
-				dequantizeWeight(loadTensor(_WeightTex, j*4+0, h/D*K+k, _WeightDim.w), offset[0]),
-				dequantizeWeight(loadTensor(_WeightTex, j*4+1, h/D*K+k, _WeightDim.w), offset[1]),
-				dequantizeWeight(loadTensor(_WeightTex, j*4+2, h/D*K+k, _WeightDim.w), offset[2]),
-				dequantizeWeight(loadTensor(_WeightTex, j*4+3, h/D*K+k, _WeightDim.w), offset[3])), X);
+				dequantizeWeight(LOAD_TENSOR(_Weight, uint2(j*4+0, h/D*K+k)), offset[0]),
+				dequantizeWeight(LOAD_TENSOR(_Weight, uint2(j*4+1, h/D*K+k)), offset[1]),
+				dequantizeWeight(LOAD_TENSOR(_Weight, uint2(j*4+2, h/D*K+k)), offset[2]),
+				dequantizeWeight(LOAD_TENSOR(_Weight, uint2(j*4+3, h/D*K+k)), offset[3])), X);
 		#endif
 	}
 	return O;

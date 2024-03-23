@@ -9,7 +9,7 @@ public class TensorNN {
 	public Dictionary<string, Shader> kernels;
 	public Dictionary<Texture, Texture> quants = new Dictionary<Texture, Texture>();
 	public VertexAttributeFormat dataType = VertexAttributeFormat.Float32;
-	public int linearMipmap = 2; // 3 has higher occupancy but similar gpu time
+	public int linearLod = 2; // 3 has higher occupancy but similar gpu time
 	public int reduceSplit = 64;
 
 	public Texture Embedding(Texture input, Texture weight, bool transposeWeight=false, int chan=0) {
@@ -32,8 +32,8 @@ public class TensorNN {
 		Debug.Assert(ctx.Size1(input)%heads == 0 && ctx.Size1(weight)%weightHeads == 0 && ctx.Size0(weight)%4 == 0 && heads%weightHeads == 0);
 		Debug.Assert(ctx.Size1(input)/heads == (transposeWeight ? ctx.Size0(weight)/4 : ctx.Size1(weight)/weightHeads));
 		var size1 = (transposeWeight ? ctx.Size1(weight)/weightHeads : ctx.Size0(weight)/4) * heads;
-		var output = ctx.GPUTensor(ctx.Size0(input), size1, dtype:dataType, mipmap:linearMipmap,
-			autoMips:weight is RenderTexture); // NOTE: not fully correct but works in common cases
+		var output = ctx.GPUTensor(ctx.Size0(input), size1, dtype:dataType, lod:linearLod,
+			genMips:weight is RenderTexture); // NOTE: not fully correct but works in common cases
 		var mat = ctx.Operator(kernels["Linear"]);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
@@ -48,9 +48,9 @@ public class TensorNN {
 	Texture _Reduce(Texture input, Keyword func, int groups=1, Vector4? indexRange=default, Texture rangeOffset=default, Matrix4x4? linear=default, int indexMod=0) {
 		Debug.Assert(ctx.Size1(input) % groups == 0 || indexMod > 0);
 		var groupSize = ctx.Size1(input) / groups;
-		var mipmap = 0;
+		var lod = 0;
 		if(func == Keyword.REDUCE_SUMPOW)
-			mipmap = Mathf.Max(0, Mathf.FloorToInt(Mathf.Log(groupSize, 2)/2-1));
+			lod = Mathf.Max(0, Mathf.FloorToInt(Mathf.Log(groupSize, 2)/2-1));
 		else if(indexMod == 0 && groupSize >= reduceSplit) {
 			var size1 = groups << Mathf.CeilToInt(Mathf.Log(groupSize, 2)/2);
 			if(groups == 1 || ctx.Size1(input) % size1 == 0) { // disallow padding if groups > 1
@@ -60,7 +60,7 @@ public class TensorNN {
 				return output2;
 			}
 		}
-		var output = ctx.GPUTensor(ctx.Size0(input), groups, dtype:VertexAttributeFormat.Float32, mipmap:mipmap);
+		var output = ctx.GPUTensor(ctx.Size0(input), groups, dtype:VertexAttributeFormat.Float32, lod:lod);
 		var mat = ctx.Operator(kernels["Reduce"]);
 		EnableOption(mat, func);
 		SetTensor(mat, "_Output", output);
@@ -145,15 +145,18 @@ public class TensorNN {
 		if(object.ReferenceEquals(output, null))
 			output = ctx.GPUTensor(size.x, size.y, dtype:ctx.DType(input));
 		var mat = ctx.Operator(kernels["Function"]);
-		SetTensor(mat, "_Output", output, outputOffset, size);
-		SetTensor(mat, "_Input",  input, inputOffset, size);
+		SetTensor(mat, "_Output", output, size);
+		SetTensor(mat, "_Input",  input, size);
+		mat.SetVector("_OutputOff", new Vector4(outputOffset.x, outputOffset.y, 0, 0));
+		mat.SetVector("_InputOff",  new Vector4(inputOffset.x, inputOffset.y, 0, 0));
 		ctx.Blit(output, mat);
 		return output;
 	}
 	public Texture Scatter(RenderTexture output, Texture index, Texture src, int chan=0) {
+		// NOTE: this is actually fake: it only uses index[0,0]
 		Debug.Assert(ctx.Size0(index) == ctx.Size0(src));
 		var mat = ctx.Operator(kernels["Function"]);
-		SetTensor(mat, "_Output", output);
+		SetTensor(mat, "_Output", output, ctx.Size(src));
 		SetTensor(mat, "_Input",  src);
 		SetTensor(mat, "_Offset", index);
 		mat.SetVector("_OutputOff",  new Vector4(0, 0, chan==0?1:0, chan==1?1:0));
@@ -189,12 +192,11 @@ public class TensorNN {
 
 	void SetTensor(Material mat, string name, Texture tex) {
 		mat.SetTexture($"{name}Tex", tex);
-		mat.SetVector($"{name}Dim",  new Vector4(ctx.Size0(tex), ctx.Size1(tex), ctx.Wrap1(tex), ctx.Mipmap(tex)));
+		mat.SetVector($"{name}Dim",  new Vector4(ctx.Size0(tex), ctx.Size1(tex), ctx.Tile1(tex), ctx.Lod(tex)));
 	}
-	void SetTensor(Material mat, string name, Texture tex, Vector2Int offset, Vector2Int size) {
-		SetTensor(mat, name, tex);
-		mat.SetVector($"{name}Dim",  new Vector4(size.x, size.y, ctx.Wrap1(tex), ctx.Mipmap(tex)));
-		mat.SetVector($"{name}Off",  new Vector4(offset.x, offset.y, 0, 0));
+	void SetTensor(Material mat, string name, Texture tex, Vector2Int size) {
+		mat.SetTexture($"{name}Tex", tex);
+		mat.SetVector($"{name}Dim",  new Vector4(size.x, size.y, ctx.Tile1(tex), ctx.Lod(tex)));
 	}
 	void SetTensorQuant(Material mat, string name, Texture tex) {
 		SetTensor(mat, name, tex);

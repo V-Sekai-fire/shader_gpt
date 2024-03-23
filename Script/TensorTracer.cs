@@ -13,26 +13,26 @@ public class TensorTracer: TensorContext {
 	Dictionary<int, RenderTextureDescriptor> rtDesc = new Dictionary<int, RenderTextureDescriptor>();
 	Dictionary<int, (int,int,TextureFormat)> texDesc = new Dictionary<int, (int,int,TextureFormat)>();
 	List<Material> matList = new List<Material>();
-	public override RenderTexture PersistentGPUTensor(string name, int size0, int size1, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int mipmap=0) {
+	public override RenderTexture PersistentGPUTensor(string name, int size0, int size1, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int lod=0) {
 		if(persistDict.ContainsKey(name))
 			return persistDict[name];
-		var tex = new RenderTexture(GPUTensorDescriptor(size0, size1, dtype:dtype, mipmap:mipmap));
+		var tex = new RenderTexture(GPUTensorDescriptor(size0, size1, dtype:dtype, lod:lod));
 		rtDesc[tex.GetInstanceID()] = tex.descriptor;
 		persistDict[name] = tex;
-		SetSize1(tex, size1);
+		FixSize0(tex, size0);
 		return tex;
 	}
-	public override RenderTexture GPUTensor(int size0, int size1, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int mipmap=0, bool autoMips=true) {
-		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, mipmap:mipmap, autoMips:autoMips));
+	public override RenderTexture GPUTensor(int size0, int size1, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int lod=0, bool genMips=true) {
+		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, lod:lod, genMips:genMips, autoTile:true));
 		rtDesc[tex.GetInstanceID()] = tex.descriptor;
-		SetSize1(tex, size1);
+		FixSize0(tex, size0);
 		return tex;
 	}
 	public override Texture2D CPUTensor(int size0, int size1, int size2=4, VertexAttributeFormat dtype=VertexAttributeFormat.Float32) {
 		var (width, height, textureFormat) = CPUTensorDescriptor(size0, size1, dtype:dtype);
 		var tex = new Texture2D(width, height, textureFormat, mipChain:false, linear:true);
 		texDesc[tex.GetInstanceID()] = (width, height, textureFormat);
-		SetSize1(tex, size1);
+		FixSize0(tex, size0);
 		return tex;
 	}
 	public override void Release(Texture tex) {

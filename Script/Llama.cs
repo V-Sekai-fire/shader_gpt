@@ -13,6 +13,7 @@ public class Llama : GPTBase {
 		public int max_position_embeddings;
 		public int vocab_size;
 		public int sliding_window; // for mistral & qwen2
+		public int hidden_size;
 	}
 	Config config;
 
@@ -97,7 +98,7 @@ public class Llama : GPTBase {
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(mlp_states)));
 	}
 	Texture LlamaModel(Texture input_ids, string path) {
-		SetSize1($"{path}.embed_tokens.weight.T", 1+(config.vocab_size-1)/4);
+		FixSize0($"{path}.embed_tokens.weight.T", config.hidden_size);
 		var hidden_states = nn.Embedding(input_ids, parameters[$"{path}.embed_tokens.weight.T"], transposeWeight:true);
 		for(int i=0; i<config.num_hidden_layers; i++)
 			LlamaDecoderLayer(ref hidden_states, input_ids, path:$"{path}.layers.{i}");
@@ -105,7 +106,7 @@ public class Llama : GPTBase {
 		return hidden_states;
 	}
 	(Texture, Texture) LlamaForCausalLM(Texture input_ids) {
-		SetSize1("lm_head.weight.T", 1+(config.vocab_size-1)/4);
+		FixSize0("lm_head.weight.T", config.hidden_size);
 		var hidden_states = LlamaModel(input_ids, path:"model");
 		var lm_logits = nn.Linear(hidden_states, parameters["lm_head.weight.T"], transposeWeight:true);
 		return (hidden_states, lm_logits);

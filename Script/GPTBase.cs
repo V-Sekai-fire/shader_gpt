@@ -140,30 +140,29 @@ public abstract class GPTBase : MonoBehaviour {
 	}
 	protected void AssertData(RenderTexture rt, int row, float[] value, float eps) {
 		var col = ctx.Size1(rt) * 4;
-		if(col > 65536)
-			col += (-col) & 65535;
 		var offset = (row>=0 ? row : ctx.Size0(rt)+row) * col;
+		var count = Mathf.Min(col, value.Length);
 		var data = ctx.GetData(rt);
 		var errorL1 = 0f;
 		var errorL2 = 0f;
 		var errorLi = 0f;
-		for(int i=0; i<value.Length; i++) {
+		for(int i=0; i<count; i++) {
 			var error = Mathf.Abs(data[offset+i] - value[i]);
 			errorL1 += error;
 			errorL2 += error*error;
 			errorLi = Mathf.Max(errorLi, error);
 		}
-		errorL1 = errorL1/value.Length;
-		errorL2 = Mathf.Sqrt(errorL2/value.Length);
+		errorL1 = errorL1/count;
+		errorL2 = Mathf.Sqrt(errorL2/count);
 		Debug.Log($"error: L1={errorL1}, L2={errorL2}, Li={errorLi}");
 		Debug.Assert(Mathf.Abs(errorLi) < eps);
 		if(Mathf.Abs(errorLi) >= eps)
 			ctx.DebugTensor(rt);
 	}
-	protected void SetSize1(string name, int size1) {
-		ctx.SetSize1(parameters[name], size1);
+	protected void FixSize0(string name, int size0) {
+		ctx.FixSize0(parameters[name], size0);
 		if(parameters.TryGetValue($"{name}.q8", out var quantTex))
-			ctx.SetSize1(quantTex, size1);
+			ctx.FixSize0(quantTex, (size0+3)/4);
 	}
 
 	[System.Serializable]

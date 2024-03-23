@@ -1,9 +1,9 @@
 Shader "GPT/Embedding" {
 Properties {
-	_OutputDim("_OutputDim", Vector) = (1, 1, 1, 0)
+	_OutputDim("_OutputDim", Vector) = (1, 1, 0, 0)
 	_InputDim ("_InputDim",  Vector) = (0, 0, 0, 0)
-	_WeightDim("_WeightDim", Vector) = (1, 1, 1, 0)
-	_ScaleDim ("_ScaleDim",  Vector) = (1, 1, 1, 0)
+	_WeightDim("_WeightDim", Vector) = (0, 0, 0, 0)
+	_ScaleDim ("_ScaleDim",  Vector) = (0, 0, 0, 0)
 	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
 	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
 	[NoScaleOffset]  _WeightTex("_WeightTex", 2D) = "black" {}
@@ -17,9 +17,9 @@ HLSLINCLUDE
 #include "Common.hlsl"
 
 uint4 _OutputDim;
-Texture2D<float4> _InputTex; uint4 _InputDim;
+Texture2D<float4> _InputTex;  uint4 _InputDim;
 Texture2D<float4> _WeightTex; uint4 _WeightDim;
-Texture2D<float4> _ScaleTex; uint4 _ScaleDim;
+Texture2D<float4> _ScaleTex;  uint4 _ScaleDim;
 uniform float4 _InputChan;
 
 float4 main(uint2 pos) {
@@ -28,18 +28,17 @@ float4 main(uint2 pos) {
 
 	uint S = _WeightDim.y / _ScaleDim.y;
 
-	float4 X = loadTensor(_InputTex, pos.x, 0, _InputDim.w);
+	float4 X = LOAD_TENSOR(_Input, uint2(pos.x, 0));
 	uint idx = _InputDim.x == 0 ? pos.x : round(dot(_InputChan, X));
 	float4 O;
 #ifdef WEIGHT_TRANSPOSED
-	// NOTE: wide tensor is only supported on transposed weight to reduce overhead
 	// tested: error rate of per-channel block q8 is smaller than per-word
-	float4 offset, scale = dequantizeScale(loadTensor(_ScaleTex, pos.y, idx/4/S, _ScaleDim), offset);
+	float4 offset, scale = dequantizeScale(LOAD_TENSOR(_Scale, uint2(pos.y, idx/4/S)), offset);
 	[unroll] for(int c=0; c<4; c++)
-		O[c] = dequantizeWeight(loadTensor(_WeightTex, pos.y*4+c, idx/4, _WeightDim), offset[c])[idx%4] * scale[c];
+		O[c] = dequantizeWeight(LOAD_TENSOR(_Weight, uint2(pos.y*4+c, idx/4)), offset[c])[idx%4] * scale[c];
 #else
-	float4 offset, scale = dequantizeScale(loadTensor(_ScaleTex, idx/4, pos.y/S), offset);
-	O = dequantizeWeight(loadTensor(_WeightTex, idx, pos.y), offset[idx%4]) * scale[idx%4];
+	float4 offset, scale = dequantizeScale(LOAD_TENSOR(_Scale, uint2(idx/4, pos.y/S)), offset);
+	O = dequantizeWeight(LOAD_TENSOR(_Weight, uint2(idx, pos.y)), offset[idx%4]) * scale[idx%4];
 #endif
 	return O;
 }
