@@ -54,8 +54,8 @@ public class GPTNeo : GPTBase {
 		var value = nn.Linear(hidden_states, parameters[$"{path}.v_proj.weight"]);
 		ctx.Release(hidden_states);
 
-		var keys   = ctx.PersistentGPUTensor($"{path}.k", maxLength, ctx.Size1(key), dtype:nn.dataType);
-		var values = ctx.PersistentGPUTensor($"{path}.v", maxLength, ctx.Size1(value), dtype:nn.dataType);
+		var keys   = ctx.PersistentGPUTensor($"{path}.k", maxLength, ctx.Size1(key), dtype:ctx.DType(key));
+		var values = ctx.PersistentGPUTensor($"{path}.v", maxLength, ctx.Size1(value), dtype:ctx.DType(value));
 		BatchRelease(nn.Scatter(keys,   input_ids, MarkRelease(key),   chan:1));
 		BatchRelease(nn.Scatter(values, input_ids, MarkRelease(value), chan:1));
 

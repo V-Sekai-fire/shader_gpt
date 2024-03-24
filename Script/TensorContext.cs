@@ -49,10 +49,10 @@ public class TensorContext {
 	// tensor creation
 	HashSet<Texture> texSet = new HashSet<Texture>();
 	Dictionary<string,RenderTexture> rtDict = new Dictionary<string,RenderTexture>();
-	public virtual RenderTexture PersistentGPUTensor(string name, int size0, int size1, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int lod=0) {
+	public virtual RenderTexture PersistentGPUTensor(string name, int size0, int size1, VertexAttributeFormat? dtype=null, int lod=0) {
 		if(rtDict.ContainsKey(name)) {
 			var rt = rtDict[name];
-			Debug.Assert(size0 == Size0(rt) && size1 == Size1(rt) && dtype == DType(rt) && lod == Lod(rt));
+			Debug.Assert(size0 == Size0(rt) && size1 == Size1(rt) && (dtype??defaultDType) == DType(rt) && lod == Lod(rt));
 			return rt;
 		}
 		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, lod:lod));
@@ -61,15 +61,15 @@ public class TensorContext {
 		FixSize0(tex, size0);
 		return tex;
 	}
-	public virtual RenderTexture GPUTensor(int size0, int size1, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int lod=0, bool genMips=true) {
-		// NOTE: genMips is ignored because deferred generation is not implemented
-		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, lod:lod, autoTile:true));
+	public virtual RenderTexture GPUTensor(int size0, int size1, VertexAttributeFormat? dtype=null, int lod=0, bool autoGenMips=true) {
+		// NOTE: autoGenMips is ignored because deferred generation is not implemented
+		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, lod:lod));
 		Debug.Assert(!texSet.Contains(tex));
 		texSet.Add(tex);
 		FixSize0(tex, size0);
 		return tex;
 	}
-	public virtual Texture2D CPUTensor(int size0, int size1, int size2=4, VertexAttributeFormat dtype=VertexAttributeFormat.Float32) {
+	public virtual Texture2D CPUTensor(int size0, int size1, VertexAttributeFormat? dtype=null) {
 		var (width, height, textureFormat) = CPUTensorDescriptor(size0, size1, dtype:dtype);
 		var tex = new Texture2D(width, height, textureFormat, mipChain:false, linear:true);
 		Debug.Assert(!texSet.Contains(tex));
@@ -149,10 +149,12 @@ public class TensorContext {
 	}
 
 	const int maxTextureSize = 16384;
-	protected (int,int,TextureFormat) CPUTensorDescriptor(int size0, int size1, int size2=4, VertexAttributeFormat dtype=VertexAttributeFormat.Float32) {
-		return (size1, size0, dtypeToTexFormat[(dtype,size2)]);
+	public bool autoTile = true;
+	public VertexAttributeFormat defaultDType = VertexAttributeFormat.Float32;
+	protected (int,int,TextureFormat) CPUTensorDescriptor(int size0, int size1, int size2=4, VertexAttributeFormat? dtype=null) {
+		return (size1, size0, dtypeToTexFormat[(dtype??defaultDType,size2)]);
 	}
-	protected RenderTextureDescriptor GPUTensorDescriptor(int size0, int size1, int size2=4, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int lod=0, bool genMips=true, bool autoTile=false) {
+	protected RenderTextureDescriptor GPUTensorDescriptor(int size0, int size1, int size2=4, VertexAttributeFormat? dtype=null, int lod=0, bool autoGenMips=true) {
 		if(autoTile && (size0<<lod) == 1 && size1 % 2 == 0) {
 			// tile when height==1, which inactivates half wave lanes
 			size0 <<= 1;
@@ -164,14 +166,14 @@ public class TensorContext {
 			size1 >>= lvl;
 			size0 <<= lvl;
 		}
-		var desc = new RenderTextureDescriptor(size1, size0, dtypeToRTFormat[(dtype,size2)], 0);
+		var desc = new RenderTextureDescriptor(size1, size0, dtypeToRTFormat[(dtype??defaultDType,size2)], 0);
 		while(lod > 0 && ((desc.width << lod) > maxTextureSize || (desc.height << lod) > maxTextureSize))
 			lod --;
 		if(lod > 0) {
 			desc.width <<= lod;
 			desc.height <<= lod;
 			desc.useMipMap = true;
-			desc.autoGenerateMips = genMips;
+			desc.autoGenerateMips = autoGenMips;
 			desc.mipCount = 1+lod;
 		}
 		return desc;

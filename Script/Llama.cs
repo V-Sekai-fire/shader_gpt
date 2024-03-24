@@ -69,8 +69,8 @@ public class Llama : GPTBase {
 		key   = BatchRelease(nn.Rotary(MarkRelease(key),   rotary, groups:config.num_key_value_heads));
 		ctx.Release(rotary);
 
-		var keys   = ctx.PersistentGPUTensor($"{path}.k", maxLength, ctx.Size1(key), dtype:nn.dataType);
-		var values = ctx.PersistentGPUTensor($"{path}.v", maxLength, ctx.Size1(value), dtype:nn.dataType);
+		var keys   = ctx.PersistentGPUTensor($"{path}.k", maxLength, ctx.Size1(key), dtype:ctx.DType(key));
+		var values = ctx.PersistentGPUTensor($"{path}.v", maxLength, ctx.Size1(value), dtype:ctx.DType(value));
 		BatchRelease(nn.Scatter(keys,   input_ids, MarkRelease(key),   chan:1));
 		BatchRelease(nn.Scatter(values, input_ids, MarkRelease(value), chan:1));
 

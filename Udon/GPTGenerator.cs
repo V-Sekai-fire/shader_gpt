@@ -64,21 +64,21 @@ public class GPTGenerator : MonoBehaviour
 	void GenerateToken() {
 		// make sure the buffer stores the last token
 		if(0 < inputIndex && inputIndex <= inputTokens.Length) {
-			matOutput.SetVector("_Weight", Vector4.zero);
-			matOutput.SetVector("_Bias", new Vector4(inputTokens[inputIndex-1],inputIndex-1,0,0));
+			matOutput.SetVector("_Mul", Vector4.zero);
+			matOutput.SetVector("_Add", new Vector4(inputTokens[inputIndex-1],inputIndex-1,0,0));
 			Graphics.Blit(null, bufOutput, matOutput, 0);
 		}
 
 		var deltaIndexRangeSample = new Vector4(0, -skipLastToken, 0, 0);
 		matSample.SetVector("_IndexRange", matSample.GetVector("_IndexRange") + deltaIndexRangeSample);
 
-		matGumbel.SetVector("_Weight", Vector4.one*temperature);
+		matGumbel.SetVector("_Mul", Vector4.one*temperature);
 		if(inputIndex < inputTokens.Length) {
-			matOutput.SetVector("_Weight", Vector4.zero);
-			matOutput.SetVector("_Bias", new Vector4(inputTokens[inputIndex],inputIndex,0,0));
+			matOutput.SetVector("_Mul", Vector4.zero);
+			matOutput.SetVector("_Add", new Vector4(inputTokens[inputIndex],inputIndex,0,0));
 		} else {
-			matOutput.SetVector("_Weight", Vector4.one);
-			matOutput.SetVector("_Bias", new Vector4(0,inputIndex,0,0));
+			matOutput.SetVector("_Mul", Vector4.one);
+			matOutput.SetVector("_Add", new Vector4(0,inputIndex,0,0));
 		}
 		var deferCount = 0;
 		foreach(var mat in materials) {

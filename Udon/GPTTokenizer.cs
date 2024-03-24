@@ -157,7 +157,7 @@ public class GPTTokenizer : MonoBehaviour
 			if(i == stop)
 				return i;
 		}
-		if(char.IsLetter(text, i) || ch == '\'') {
+		if(char.IsLetter(text, i) || ch == '\'' || ch == '\u2019') {
 			do {
 				if(++i >= stop) break;
 			} while(char.IsLetter(text, i));

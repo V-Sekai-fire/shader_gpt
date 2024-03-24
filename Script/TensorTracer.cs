@@ -13,7 +13,7 @@ public class TensorTracer: TensorContext {
 	Dictionary<int, RenderTextureDescriptor> rtDesc = new Dictionary<int, RenderTextureDescriptor>();
 	Dictionary<int, (int,int,TextureFormat)> texDesc = new Dictionary<int, (int,int,TextureFormat)>();
 	List<Material> matList = new List<Material>();
-	public override RenderTexture PersistentGPUTensor(string name, int size0, int size1, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int lod=0) {
+	public override RenderTexture PersistentGPUTensor(string name, int size0, int size1, VertexAttributeFormat? dtype=null, int lod=0) {
 		if(persistDict.ContainsKey(name))
 			return persistDict[name];
 		var tex = new RenderTexture(GPUTensorDescriptor(size0, size1, dtype:dtype, lod:lod));
@@ -22,13 +22,13 @@ public class TensorTracer: TensorContext {
 		FixSize0(tex, size0);
 		return tex;
 	}
-	public override RenderTexture GPUTensor(int size0, int size1, VertexAttributeFormat dtype=VertexAttributeFormat.Float32, int lod=0, bool genMips=true) {
-		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, lod:lod, genMips:genMips, autoTile:true));
+	public override RenderTexture GPUTensor(int size0, int size1, VertexAttributeFormat? dtype=null, int lod=0, bool autoGenMips=true) {
+		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, lod:lod, autoGenMips:autoGenMips));
 		rtDesc[tex.GetInstanceID()] = tex.descriptor;
 		FixSize0(tex, size0);
 		return tex;
 	}
-	public override Texture2D CPUTensor(int size0, int size1, int size2=4, VertexAttributeFormat dtype=VertexAttributeFormat.Float32) {
+	public override Texture2D CPUTensor(int size0, int size1, VertexAttributeFormat? dtype=null) {
 		var (width, height, textureFormat) = CPUTensorDescriptor(size0, size1, dtype:dtype);
 		var tex = new Texture2D(width, height, textureFormat, mipChain:false, linear:true);
 		texDesc[tex.GetInstanceID()] = (width, height, textureFormat);

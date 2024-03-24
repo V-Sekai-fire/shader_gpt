@@ -56,8 +56,8 @@ public class GPT2 : GPTBase {
 		key   = BatchRelease(nn.Fusion(MarkRelease(key),   add:parameters[$"{path}.c_key.bias"]));
 		value = BatchRelease(nn.Fusion(MarkRelease(value), add:parameters[$"{path}.c_value.bias"]));
 
-		var keys   = ctx.PersistentGPUTensor($"{path}.k", maxLength, ctx.Size1(key), dtype:nn.dataType);
-		var values = ctx.PersistentGPUTensor($"{path}.v", maxLength, ctx.Size1(value), dtype:nn.dataType);
+		var keys   = ctx.PersistentGPUTensor($"{path}.k", maxLength, ctx.Size1(key), dtype:ctx.DType(key));
+		var values = ctx.PersistentGPUTensor($"{path}.v", maxLength, ctx.Size1(value), dtype:ctx.DType(value));
 		BatchRelease(nn.Scatter(keys,   input_ids, MarkRelease(key),   chan:1));
 		BatchRelease(nn.Scatter(values, input_ids, MarkRelease(value), chan:1));
 

@@ -4,23 +4,23 @@ Properties {
 	_InputDim ("_InputDim",  Vector) = (1, 1, 0, 0)
 	_ReduceDim("_ReduceDim", Vector) = (1, 1, 0, 0)
 	_OffsetDim("_OffsetDim", Vector) = (0, 0, 0, 0)
-	_WeightDim("_WeightDim", Vector) = (0, 0, 0, 0)
-	_BiasDim  ("_BiasDim",   Vector) = (0, 0, 0, 0)
+	_MulDim   ("_MulDim",    Vector) = (0, 0, 0, 0)
+	_AddDim   ("_AddDim",    Vector) = (0, 0, 0, 0)
 	_RotaryDim("_RotaryDim", Vector) = (0, 0, 0, 0)
 	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
 	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
 	[NoScaleOffset]  _ReduceTex("_ReduceTex", 2D) = "black" {}
 	[NoScaleOffset]  _OffsetTex("_OffsetTex", 2D) = "black" {}
-	[NoScaleOffset]  _WeightTex("_WeightTex", 2D) = "black" {}
-	[NoScaleOffset]  _BiasTex  ("_BiasTex",   2D) = "black" {}
+	[NoScaleOffset]  _MulTex   ("_MulTex",    2D) = "black" {}
+	[NoScaleOffset]  _AddTex   ("_AddTex",    2D) = "black" {}
 	[NoScaleOffset]  _RotaryTex("_RotaryTex", 2D) = "black" {}
 	_InputOff ("_InputOff",  Vector) = (0, 0, 0, 0)
 	_OutputOff("_OutputOff", Vector) = (0, 0, 0, 0)
 	_IndexRange("_IndexRange", Vector) = (0, 1048576, 0, 0)
 	_Eps  ("_Eps",   Float) = 0
 	_Scale("_Scale", Float) = 1
-	_Weight ("_Weight",  Vector) = (1, 1, 1, 1)
-	_Bias   ("_Bias",    Vector) = (0, 0, 0, 0)
+	_Mul  ("_Mul",   Vector) = (1, 1, 1, 1)
+	_Add  ("_Add",   Vector) = (0, 0, 0, 0)
 	_Default("_Default", Vector) = (0, 0, 0, 0)
 }
 SubShader {
@@ -33,16 +33,16 @@ uint4 _OutputDim;
 Texture2D<float4> _InputTex;  uint4 _InputDim;
 Texture2D<float4> _ReduceTex; uint4 _ReduceDim;
 Texture2D<float4> _OffsetTex; uint4 _OffsetDim;
-Texture2D<float4> _WeightTex; uint4 _WeightDim;
-Texture2D<float4> _BiasTex;   uint4 _BiasDim;
+Texture2D<float4> _MulTex;    uint4 _MulDim;
+Texture2D<float4> _AddTex;    uint4 _AddDim;
 Texture2D<float4> _RotaryTex; uint4 _RotaryDim;
 uniform uint2 _InputOff;
 uniform uint4 _OutputOff;
 uniform float4 _IndexRange;
 uniform float _Eps;
 uniform float _Scale;
-uniform float4 _Weight;
-uniform float4 _Bias;
+uniform float4 _Mul;
+uniform float4 _Add;
 uniform float4 _Default;
 
 float4 main(uint2 pos) {
@@ -82,12 +82,12 @@ float4 main(uint2 pos) {
 	#endif
 
 	O = mask ? O : _Default;
-	O *= _Weight;
-	if(_WeightDim.x)
-		O *= LOAD_TENSOR(_Weight, pos.xy*_WeightDim.xy/_InputDim.xy);
-	O += _Bias;
-	if(_BiasDim.x)
-		O += LOAD_TENSOR(_Bias, pos.xy*_BiasDim.xy/_InputDim.xy);
+	O *= _Mul;
+	if(_MulDim.x)
+		O *= LOAD_TENSOR(_Mul, pos.xy*_MulDim.xy/_InputDim.xy);
+	O += _Add;
+	if(_AddDim.x)
+		O += LOAD_TENSOR(_Add, pos.xy*_AddDim.xy/_InputDim.xy);
 
 	#if defined(FUNC_GELU)
 		O = gelu(O);

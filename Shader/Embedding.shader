@@ -29,7 +29,7 @@ float4 main(uint2 pos) {
 	uint S = _WeightDim.y / _ScaleDim.y;
 
 	float4 X = LOAD_TENSOR(_Input, uint2(pos.x, 0));
-	uint idx = _InputDim.x == 0 ? pos.x : round(dot(_InputChan, X));
+	uint idx = round(dot(_InputChan, _InputDim.x ? X : float4(pos.x, 1, 0, 0)));
 	float4 O;
 #ifdef WEIGHT_TRANSPOSED
 	// tested: error rate of per-channel block q8 is smaller than per-word
