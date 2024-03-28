@@ -17,8 +17,8 @@ Properties {
 	_InputOff ("_InputOff",  Vector) = (0, 0, 0, 0)
 	_OutputOff("_OutputOff", Vector) = (0, 0, 0, 0)
 	_IndexRange("_IndexRange", Vector) = (0, 1048576, 0, 0)
-	_Eps  ("_Eps",   Float) = 0
 	_Scale("_Scale", Float) = 1
+	_Eps  ("_Eps",   Float) = 0
 	_Mul  ("_Mul",   Vector) = (1, 1, 1, 1)
 	_Add  ("_Add",   Vector) = (0, 0, 0, 0)
 	_Default("_Default", Vector) = (0, 0, 0, 0)
@@ -89,7 +89,9 @@ float4 main(uint2 pos) {
 	if(_AddDim.x)
 		O += LOAD_TENSOR(_Add, pos.xy*_AddDim.xy/_InputDim.xy);
 
-	#if defined(FUNC_GELU)
+	#if defined(FUNC_RELU)
+		O = max(0,O) + _Eps * min(0,O); // leaky relu
+	#elif defined(FUNC_GELU)
 		O = gelu(O);
 	#elif defined(FUNC_GELU_NEW)
 		O = gelu_new(O);
@@ -112,7 +114,7 @@ HLSLPROGRAM
 #pragma target 5.0
 #pragma vertex vertQuad
 #pragma fragment frag
-#pragma shader_feature _ FUNC_GROUPNORM FUNC_SOFTMAX_LINF FUNC_NORMALIZE_L1 FUNC_GELU FUNC_GELU_NEW FUNC_SILU FUNC_GUMBEL FUNC_ROTARY
+#pragma shader_feature _ FUNC_GROUPNORM FUNC_SOFTMAX_LINF FUNC_NORMALIZE_L1 FUNC_RELU FUNC_GELU FUNC_GELU_NEW FUNC_SILU FUNC_GUMBEL FUNC_ROTARY
 ENDHLSL
 	}
 }

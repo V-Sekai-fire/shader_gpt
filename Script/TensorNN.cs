@@ -21,7 +21,7 @@ public class TensorNN {
 			SetTensorQuant(mat, "_Scale", quant);
 		if(transposeWeight)
 			EnableOption(mat, Keyword.WEIGHT_TRANSPOSED);
-		mat.SetVector("_InputChan", new Vector4(chan==0?1:0, chan==1?1:0, chan==2?1:0, chan==3?1:0));
+		mat.SetInt("_InputChan", chan);
 		ctx.Blit(output, mat);
 		return output;
 	}
@@ -106,7 +106,7 @@ public class TensorNN {
 		ctx.Release(reduce);
 		return output;
 	}
-	public Texture Fusion(Texture input, float scale=1f, Texture mul=default, Texture add=default, Keyword func=default, Vector4? indexRange=default, Texture rangeOffset=default, Vector4 defaultValue=default) {
+	public Texture Fusion(Texture input, float scale=1f, Texture mul=default, Texture add=default, Keyword func=default, float eps=0, Vector4? indexRange=default, Texture rangeOffset=default, Vector4 defaultValue=default) {
 		Debug.Assert(!mul || (ctx.Size0(input) % ctx.Size0(mul) == 0 && ctx.Size1(input) % ctx.Size1(mul) == 0));
 		Debug.Assert(!add || (ctx.Size0(input) % ctx.Size0(add) == 0 && ctx.Size1(input) % ctx.Size1(add) == 0));
 		var output = ctx.GPUTensor(ctx.Size0(input), ctx.Size1(input), dtype:ctx.DType(input));
@@ -121,6 +121,7 @@ public class TensorNN {
 			SetTensor(mat, "_Mul", mul);
 		if(add)
 			SetTensor(mat, "_Add", add);
+		mat.SetFloat("_Eps", eps);
 		mat.SetVector("_Mul", scale * Vector4.one);
 		mat.SetVector("_Default", defaultValue);
 		if(func != default)
@@ -139,17 +140,6 @@ public class TensorNN {
 		ctx.Blit(output, mat);
 		return output;
 	}
-	public Texture Scatter(RenderTexture output, Texture index, Texture src, int chan=0) {
-		// NOTE: this is actually fake: it only uses index[0,0]
-		Debug.Assert(ctx.Size0(index) == ctx.Size0(src));
-		var mat = ctx.Operator(kernels["Function"]);
-		SetTensor(mat, "_Output", output, ctx.Size(src));
-		SetTensor(mat, "_Input",  src);
-		SetTensor(mat, "_Offset", index);
-		mat.SetVector("_OutputOff",  new Vector4(0, 0, chan==0?1:0, chan==1?1:0));
-		ctx.Blit(output, mat);
-		return output;
-	}
 	public Texture Rotary(Texture input, Texture rotary, int groups=1) {
 		Debug.Assert(ctx.Size1(input) % groups == 0 && ctx.Size1(input)/groups % 2 == 0 && ctx.Size1(rotary) % 2 == 0);
 		var output = ctx.GPUTensor(ctx.Size0(input), ctx.Size1(input), dtype:ctx.DType(input));
@@ -160,6 +150,28 @@ public class TensorNN {
 		SetTensor(mat, "_Rotary", rotary);
 		mat.SetVector("_ReduceDim", new Vector2(ctx.Size0(input), groups));
 		ctx.Blit(output, mat);
+		return output;
+	}
+	public Texture Scatter(RenderTexture output, Texture index, Texture src, int chan=0, bool axis1=false, float fill=0) {
+		const int batchSize = 4096;
+		Debug.Assert(!src || (axis1 ? ctx.Size1(index) == ctx.Size1(src) : ctx.Size0(index) == ctx.Size0(src)));
+		var count = axis1 ? ctx.Size1(index)*4 : ctx.Size0(index);
+		for(int off=0; off<count; off+=batchSize)
+		for(int mask=axis1?1:15; mask<16; mask<<=1) {
+			var mat = ctx.Operator(kernels["Scatter"]);
+			if(axis1)
+				EnableOption(mat, Keyword.WEIGHT_TRANSPOSED);
+			SetTensor(mat, "_Output", output);
+			SetTensor(mat, "_Input",  index);
+			if(src)
+				SetTensor(mat, "_Weight", src);
+			else
+				mat.SetVector("_Weight", fill * Vector4.one);
+			mat.SetVector("_InputOff", axis1 ? new Vector2(0,off) : new Vector2(off,0));
+			mat.SetInt("_InputChan", chan);
+			mat.SetInt("_ColorMask", mask);
+			ctx.Blit(output, mat);
+		}
 		return output;
 	}
 
@@ -216,6 +228,7 @@ public class TensorNN {
 		FUNC_NORMALIZE_L1,
 		FUNC_GUMBEL,
 		FUNC_ROTARY,
+		FUNC_RELU,
 		FUNC_GELU,
 		FUNC_GELU_NEW,
 		FUNC_SILU,

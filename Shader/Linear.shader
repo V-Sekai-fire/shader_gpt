@@ -3,7 +3,7 @@ Properties {
 	_OutputDim("_OutputDim", Vector) = (1, 1, 0, 0)
 	_InputDim ("_InputDim",  Vector) = (1, 1, 0, 0)
 	_WeightDim("_WeightDim", Vector) = (1, 1, 0, 0)
-	_ScaleDim ("_ScaleDim",  Vector) = (1, 1, 0, 0)
+	_ScaleDim ("_ScaleDim",  Vector) = (0, 0, 0, 0)
 	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
 	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
 	[NoScaleOffset]  _WeightTex("_WeightTex", 2D) = "black" {}

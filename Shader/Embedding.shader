@@ -1,14 +1,14 @@
 Shader "GPT/Embedding" {
 Properties {
 	_OutputDim("_OutputDim", Vector) = (1, 1, 0, 0)
-	_InputDim ("_InputDim",  Vector) = (0, 0, 0, 0)
-	_WeightDim("_WeightDim", Vector) = (0, 0, 0, 0)
+	_InputDim ("_InputDim",  Vector) = (0, 0, 0, 0) // zero = enumeration
+	_WeightDim("_WeightDim", Vector) = (1, 1, 0, 0)
 	_ScaleDim ("_ScaleDim",  Vector) = (0, 0, 0, 0)
 	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
 	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
 	[NoScaleOffset]  _WeightTex("_WeightTex", 2D) = "black" {}
 	[NoScaleOffset]  _ScaleTex ("_ScaleTex",  2D) = "black" {}
-	_InputChan("_InputChan", Vector) = (1, 0, 0, 0)
+	_InputChan("_InputChan", Int) = 0
 }
 SubShader {
 	Tags { "PreviewType"="Plane" } // prevent freezing Unity editor
@@ -20,16 +20,15 @@ uint4 _OutputDim;
 Texture2D<float4> _InputTex;  uint4 _InputDim;
 Texture2D<float4> _WeightTex; uint4 _WeightDim;
 Texture2D<float4> _ScaleTex;  uint4 _ScaleDim;
-uniform float4 _InputChan;
+uniform uint _InputChan;
 
 float4 main(uint2 pos) {
 	// torch.nn.functional.embedding()
-	// output[i,j][jj] = transpose ? weight[j*4+jj,input[i,0]/4][input[i,0]%4] : weight[input[i,0],j][jj]
+	// output[i,j][jj] = transpose ? weight[j*4+jj,input[i,c]/4][input[i,c]%4] : weight[input[i,c],j][jj]
 
 	uint S = _WeightDim.y / _ScaleDim.y;
 
-	float4 X = LOAD_TENSOR(_Input, uint2(pos.x, 0));
-	uint idx = round(dot(_InputChan, _InputDim.x ? X : float4(pos.x, 1, 0, 0)));
+	uint idx = _InputDim.x ? LOAD_TENSOR(_Input, uint2(pos.x, _InputChan/4))[_InputChan%4] : pos.x;
 	float4 O;
 #ifdef WEIGHT_TRANSPOSED
 	// tested: error rate of per-channel block q8 is smaller than per-word
