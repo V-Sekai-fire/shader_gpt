@@ -9,7 +9,6 @@ public class GPTNeo : GPTBase {
 		public float layer_norm_epsilon;
 		public string activation_function;
 		public int max_position_embeddings;
-		public int vocab_size;
 		public int window_size;
 	}
 	Config config;
@@ -22,10 +21,9 @@ public class GPTNeo : GPTBase {
 	public override int Run(int positionId) {
 		var input = InputTensor(tokens, positionId);
 		var (hidden_states, logits) = GPTNeoForCausalLM(input);
-		ctx.Release(input);
 		ctx.Release(hidden_states);
-		var next_tokens = MultinomialSample(logits, config.vocab_size, temperature);
-		ctx.Release(logits);
+		var next_tokens = Generate(input, ref logits);
+		ctx.Release(input);
 		var data = BatchRelease(ctx.GetData((RenderTexture)MarkRelease(next_tokens)));
 		return Mathf.RoundToInt(data[0]);
 	}
@@ -42,8 +40,7 @@ public class GPTNeo : GPTBase {
 		var input = ctx.PersistentGPUTensor("input", 1, 1);
 		var (hidden_states, logits) = GPTNeoForCausalLM(input);
 		ctx.Release(hidden_states);
-		var next_tokens = MultinomialSample(logits, config.vocab_size);
-		ctx.Release(logits);
+		var next_tokens = Generate(input, ref logits);
 		nn.Copy(input, next_tokens, ctx.Size(input));
 		ctx.Release(next_tokens);
 	}
@@ -62,10 +59,9 @@ public class GPTNeo : GPTBase {
 		var window_size = layer_id%2==1 ? config.window_size : config.max_position_embeddings;
 		var attn_scores = BatchRelease(nn.Linear(MarkRelease(query), keys, heads:config.num_heads));
 		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores), groups:config.num_heads,
-			indexRange:new Vector4(1-window_size, 1, 0, 1), rangeOffset:input_ids));
+			window:new Vector4(1-window_size, 1, 0, 1), offset:input_ids));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:config.num_heads, transposeWeight:true));
-		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), parameters[$"{path}.out_proj.weight"]));
-		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:parameters[$"{path}.out_proj.bias"]));
+		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), parameters[$"{path}.out_proj.weight"], parameters[$"{path}.out_proj.bias"]));
 	}
 	void GPTNeoBlock(ref Texture hidden_states, Texture input_ids, string path, int layer_id) {
 		var attn_states = nn.GroupNorm(hidden_states, parameters[$"{path}.ln_1.weight"], parameters[$"{path}.ln_1.bias"], config.layer_norm_epsilon);
@@ -73,10 +69,9 @@ public class GPTNeo : GPTBase {
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(attn_states)));
 
 		var mlp_states = nn.GroupNorm(hidden_states, parameters[$"{path}.ln_2.weight"], parameters[$"{path}.ln_2.bias"], config.layer_norm_epsilon);
-		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), parameters[$"{path}.mlp.c_fc.weight"]));
-		mlp_states = BatchRelease(nn.Fusion(MarkRelease(mlp_states), add:parameters[$"{path}.mlp.c_fc.bias"], func:TensorNN.ActFn(config.activation_function)));
-		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), parameters[$"{path}.mlp.c_proj.weight"]));
-		mlp_states = BatchRelease(nn.Fusion(MarkRelease(mlp_states), add:parameters[$"{path}.mlp.c_proj.bias"]));
+		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), parameters[$"{path}.mlp.c_fc.weight"], parameters[$"{path}.mlp.c_fc.bias"]));
+		mlp_states = BatchRelease(nn.Fusion(MarkRelease(mlp_states), func:TensorNN.ActFn(config.activation_function)));
+		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), parameters[$"{path}.mlp.c_proj.weight"], parameters[$"{path}.mlp.c_proj.bias"]));
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(mlp_states)));
 	}
 	Texture GPTNeoModel(Texture input_ids, string path) {

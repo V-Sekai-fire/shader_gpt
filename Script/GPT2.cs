@@ -9,7 +9,6 @@ public class GPT2 : GPTBase {
 		public float layer_norm_epsilon;
 		public string activation_function;
 		public int n_positions;
-		public int vocab_size;
 	}
 	Config config;
 
@@ -21,10 +20,9 @@ public class GPT2 : GPTBase {
 	public override int Run(int positionId) {
 		var input = InputTensor(tokens, positionId);
 		var (hidden_states, logits) = GPT2LMHeadModel(input);
-		ctx.Release(input);
 		ctx.Release(hidden_states);
-		var next_tokens = MultinomialSample(logits, config.vocab_size, temperature);
-		ctx.Release(logits);
+		var next_tokens = Generate(input, ref logits);
+		ctx.Release(input);
 		var data = BatchRelease(ctx.GetData((RenderTexture)MarkRelease(next_tokens)));
 		return Mathf.RoundToInt(data[0]);
 	}
@@ -41,20 +39,16 @@ public class GPT2 : GPTBase {
 		var input = ctx.PersistentGPUTensor("input", 1, 1);
 		var (hidden_states, logits) = GPT2LMHeadModel(input);
 		ctx.Release(hidden_states);
-		var next_tokens = MultinomialSample(logits, config.vocab_size);
-		ctx.Release(logits);
+		var next_tokens = Generate(input, ref logits);
 		nn.Copy(input, next_tokens, ctx.Size(input));
 		ctx.Release(next_tokens);
 	}
 
 	void GPT2Attention(ref Texture hidden_states, Texture input_ids, string path) {
-		var query = nn.Linear(hidden_states, parameters[$"{path}.c_query.weight"]);
-		var key   = nn.Linear(hidden_states, parameters[$"{path}.c_key.weight"]);
-		var value = nn.Linear(hidden_states, parameters[$"{path}.c_value.weight"]);
+		var query = nn.Linear(hidden_states, parameters[$"{path}.c_query.weight"], parameters[$"{path}.c_query.bias"]);
+		var key   = nn.Linear(hidden_states, parameters[$"{path}.c_key.weight"], parameters[$"{path}.c_key.bias"]);
+		var value = nn.Linear(hidden_states, parameters[$"{path}.c_value.weight"], parameters[$"{path}.c_value.bias"]);
 		ctx.Release(hidden_states);
-		query = BatchRelease(nn.Fusion(MarkRelease(query), add:parameters[$"{path}.c_query.bias"]));
-		key   = BatchRelease(nn.Fusion(MarkRelease(key),   add:parameters[$"{path}.c_key.bias"]));
-		value = BatchRelease(nn.Fusion(MarkRelease(value), add:parameters[$"{path}.c_value.bias"]));
 
 		var keys   = ctx.PersistentGPUTensor($"{path}.k", maxLength, ctx.Size1(key), dtype:ctx.DType(key));
 		var values = ctx.PersistentGPUTensor($"{path}.v", maxLength, ctx.Size1(value), dtype:ctx.DType(value));
@@ -65,10 +59,9 @@ public class GPT2 : GPTBase {
 		var norm_factor = 1f / Mathf.Sqrt(ctx.Size1(query)*4 / config.n_head);
 		var attn_scores = BatchRelease(nn.Linear(MarkRelease(query), keys, heads:config.n_head));
 		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores), scale:norm_factor,
-			groups:config.n_head, indexRange:new Vector4(1-window_size, 1, 0, 1), rangeOffset:input_ids));
+			groups:config.n_head, window:new Vector4(1-window_size, 1, 0, 1), offset:input_ids));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:config.n_head, transposeWeight:true));
-		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), parameters[$"{path}.c_proj.weight"]));
-		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:parameters[$"{path}.c_proj.bias"]));
+		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), parameters[$"{path}.c_proj.weight"], parameters[$"{path}.c_proj.bias"]));
 	}
 	void GPT2Block(ref Texture hidden_states, Texture input_ids, string path) {
 		var attn_states = nn.GroupNorm(hidden_states, parameters[$"{path}.ln_1.weight"], parameters[$"{path}.ln_1.bias"], config.layer_norm_epsilon);
@@ -76,10 +69,9 @@ public class GPT2 : GPTBase {
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(attn_states)));
 
 		var mlp_states = nn.GroupNorm(hidden_states, parameters[$"{path}.ln_2.weight"], parameters[$"{path}.ln_2.bias"], config.layer_norm_epsilon);
-		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), parameters[$"{path}.mlp.c_fc.weight"]));
-		mlp_states = BatchRelease(nn.Fusion(MarkRelease(mlp_states), add:parameters[$"{path}.mlp.c_fc.bias"], func:TensorNN.ActFn(config.activation_function)));
-		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), parameters[$"{path}.mlp.c_proj.weight"]));
-		mlp_states = BatchRelease(nn.Fusion(MarkRelease(mlp_states), add:parameters[$"{path}.mlp.c_proj.bias"]));
+		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), parameters[$"{path}.mlp.c_fc.weight"], parameters[$"{path}.mlp.c_fc.bias"]));
+		mlp_states = BatchRelease(nn.Fusion(MarkRelease(mlp_states), func:TensorNN.ActFn(config.activation_function)));
+		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), parameters[$"{path}.mlp.c_proj.weight"], parameters[$"{path}.mlp.c_proj.bias"]));
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(mlp_states)));
 	}
 	Texture GPT2Model(Texture input_ids, string path) {

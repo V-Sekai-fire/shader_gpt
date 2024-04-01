@@ -6,12 +6,12 @@ Properties {
 	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
 	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
 	[NoScaleOffset]  _OffsetTex("_OffsetTex", 2D) = "black" {}
-	_IndexRange("_IndexRange", Vector) = (0, 1048576, 0, 0)
-	_IndexMod  ("_IndexMod",   Int) = 1
-	_Linear0("_Linear0", Vector) = (1, 0, 0, 0)
-	_Linear1("_Linear1", Vector) = (0, 1, 0, 0)
-	_Linear2("_Linear2", Vector) = (0, 0, 1, 0)
-	_Linear3("_Linear3", Vector) = (0, 0, 0, 1)
+	_Window  ("_Window",  Vector) = (0, 1048576, 0, 0)
+	_IndexMod("_IndexMod", Int) = 1
+	_Linear0 ("_Linear0", Vector) = (1, 0, 0, 0)
+	_Linear1 ("_Linear1", Vector) = (0, 1, 0, 0)
+	_Linear2 ("_Linear2", Vector) = (0, 0, 1, 0)
+	_Linear3 ("_Linear3", Vector) = (0, 0, 0, 1)
 }
 SubShader {
 	Tags { "PreviewType"="Plane" } // prevent freezing Unity editor
@@ -22,7 +22,7 @@ HLSLINCLUDE
 uint4 _OutputDim;
 Texture2D<float4> _InputTex;  uint4 _InputDim;
 Texture2D<float4> _OffsetTex; uint4 _OffsetDim;
-uniform float4 _IndexRange;
+uniform float4 _Window;
 uniform uint   _IndexMod;
 uniform float4 _Linear0;
 uniform float4 _Linear1;
@@ -44,7 +44,7 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 	// output[i,j].yw = torch.max(input[i,j*K+k][c], dim=(k,c))
 
 	uint K = 1+(_InputDim.y-1)/_OutputDim.y, jK = pos.y*K;
-	int2 range = _IndexRange.xy + dot(_IndexRange.zw, LOAD_TENSOR(_Offset, uint2(pos.x, 0)).xy);
+	int2 range = _Window.xy + dot(_Window.zw, LOAD_TENSOR(_Offset, uint2(pos.x, 0)).xy);
 	#if defined(REDUCE_SUMPOW)
 		float4 O = 0;
 	#elif defined(REDUCE_MINMAX)

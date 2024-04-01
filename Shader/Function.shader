@@ -14,14 +14,14 @@ Properties {
 	[NoScaleOffset]  _MulTex   ("_MulTex",    2D) = "black" {}
 	[NoScaleOffset]  _AddTex   ("_AddTex",    2D) = "black" {}
 	[NoScaleOffset]  _RotaryTex("_RotaryTex", 2D) = "black" {}
-	_InputOff ("_InputOff",  Vector) = (0, 0, 0, 0)
 	_OutputOff("_OutputOff", Vector) = (0, 0, 0, 0)
-	_IndexRange("_IndexRange", Vector) = (0, 1048576, 0, 0)
-	_Scale("_Scale", Float) = 1
-	_Eps  ("_Eps",   Float) = 0
-	_Mul  ("_Mul",   Vector) = (1, 1, 1, 1)
-	_Add  ("_Add",   Vector) = (0, 0, 0, 0)
-	_Default("_Default", Vector) = (0, 0, 0, 0)
+	_InputOff ("_InputOff",  Vector) = (0, 0, 0, 0)
+	_Window   ("_Window",    Vector) = (0, 1048576, 0, 0)
+	_Default  ("_Default",   Vector) = (0, 0, 0, 0)
+	_Scale    ("_Scale", Float) = 1
+	_Eps      ("_Eps",   Float) = 0
+	_Mul      ("_Mul",   Vector) = (1, 1, 1, 1)
+	_Add      ("_Add",   Vector) = (0, 0, 0, 0)
 }
 SubShader {
 	Tags { "PreviewType"="Plane" } // prevent freezing Unity editor
@@ -36,14 +36,14 @@ Texture2D<float4> _OffsetTex; uint4 _OffsetDim;
 Texture2D<float4> _MulTex;    uint4 _MulDim;
 Texture2D<float4> _AddTex;    uint4 _AddDim;
 Texture2D<float4> _RotaryTex; uint4 _RotaryDim;
+uniform uint2 _OutputOff;
 uniform uint2 _InputOff;
-uniform uint4 _OutputOff;
-uniform float4 _IndexRange;
+uniform float4 _Window;
+uniform float4 _Default;
 uniform float _Eps;
 uniform float _Scale;
 uniform float4 _Mul;
 uniform float4 _Add;
-uniform float4 _Default;
 
 float4 main(uint2 pos) {
 	// output[i,j] = act(reduce(input[i,j]) * weight + bias)
@@ -52,7 +52,7 @@ float4 main(uint2 pos) {
 	float4 R = LOAD_TENSOR(_Reduce, pos.xy*_ReduceDim.xy/_InputDim.xy);
 	float4 O = X;
 	int4 index = pos.y%(_InputDim.y/_ReduceDim.y)*4 + uint4(0,1,2,3);
-	int2 range = _IndexRange.xy + dot(_IndexRange.zw, LOAD_TENSOR(_Offset, uint2(pos.x, 0)).xy);
+	int2 range = _Window.xy + dot(_Window.zw, LOAD_TENSOR(_Offset, uint2(pos.x, 0)).xy);
 	bool4 mask = range.x <= index && index < range.y;
 	#if defined(FUNC_GROUPNORM)
 		O = (X*R[0]-R[1]) * rsqrt(_Eps*(R[0]*R[0]) + max(0, R[2]*R[0]-R[1]*R[1])); // R is sum of powers
@@ -102,7 +102,7 @@ float4 main(uint2 pos) {
 }
 float4 frag(float4 screenPos : SV_Position) : SV_Target {
 	uint2 pos = getThreadId(screenPos, _OutputDim);
-	pos -= int2(dot(_OutputOff.zw, LOAD_TENSOR(_Offset, uint2(0, 0)).xy) + _OutputOff.x, _OutputOff.y);
+	pos -= _OutputOff;
 	if(!all(0 <= int2(pos) && int2(pos) < int2(_OutputDim.xy)))
 		discard;
 	return main(pos);

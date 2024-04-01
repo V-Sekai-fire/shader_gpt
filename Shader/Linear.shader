@@ -4,10 +4,12 @@ Properties {
 	_InputDim ("_InputDim",  Vector) = (1, 1, 0, 0)
 	_WeightDim("_WeightDim", Vector) = (1, 1, 0, 0)
 	_ScaleDim ("_ScaleDim",  Vector) = (0, 0, 0, 0)
+	_BiasDim  ("_BiasDim",   Vector) = (0, 0, 0, 0)
 	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
 	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
 	[NoScaleOffset]  _WeightTex("_WeightTex", 2D) = "black" {}
 	[NoScaleOffset]  _ScaleTex ("_ScaleTex",  2D) = "black" {}
+	[NoScaleOffset]  _BiasTex  ("_BiasTex",   2D) = "black" {}
 }
 SubShader {
 	Tags { "PreviewType"="Plane" } // prevent freezing Unity editor
@@ -19,6 +21,7 @@ uint4 _OutputDim;
 Texture2D<float4> _InputTex;  uint4 _InputDim;
 Texture2D<float4> _WeightTex; uint4 _WeightDim;
 Texture2D<float4> _ScaleTex;  uint4 _ScaleDim;
+Texture2D<float4> _BiasTex;   uint4 _BiasDim;
 
 float4 main(uint2 pos, uint threadId, uint groupSize) {
 	// torch.nn.functional.linear(bias=None) with multi-head support
@@ -37,6 +40,7 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 	uint j = pos.y % J;
 	uint h = pos.y / J;
 	float4 O = 0;
+	float4 B = LOAD_TENSOR(_Bias, uint2(0, pos.y)); // load here for less divergence
 	for(uint k=threadId; k<K; k+=groupSize) {
 		float4 X = LOAD_TENSOR(_Input, uint2(pos.x, h*K+k));
 		#ifdef WEIGHT_TRANSPOSED
@@ -57,6 +61,7 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 				dequantizeWeight(LOAD_TENSOR(_Weight, uint2(j*4+3, h/D*K+k)), offset[3])), X);
 		#endif
 	}
+	O += B / groupSize; // accum here for less error
 	return O;
 }
 float4 frag(float4 screenPos : SV_Position) : SV_Target {

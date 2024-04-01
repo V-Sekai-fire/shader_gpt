@@ -11,7 +11,6 @@ public class Llama : GPTBase {
 		public float rms_norm_eps;
 		public string hidden_act;
 		public int max_position_embeddings;
-		public int vocab_size;
 		public int sliding_window; // for mistral & qwen2
 		public int hidden_size;
 	}
@@ -25,10 +24,9 @@ public class Llama : GPTBase {
 	public override int Run(int positionId) {
 		var input = InputTensor(tokens, positionId);
 		var (hidden_states, logits) = LlamaForCausalLM(input);
-		ctx.Release(input);
 		ctx.Release(hidden_states);
-		var next_tokens = MultinomialSample(logits, config.vocab_size, temperature);
-		ctx.Release(logits);
+		var next_tokens = Generate(input, ref logits);
+		ctx.Release(input);
 		var data = BatchRelease(ctx.GetData((RenderTexture)MarkRelease(next_tokens)));
 		return Mathf.RoundToInt(data[0]);
 	}
@@ -45,23 +43,19 @@ public class Llama : GPTBase {
 		var input = ctx.PersistentGPUTensor("input", 1, 1);
 		var (hidden_states, logits) = LlamaForCausalLM(input);
 		ctx.Release(hidden_states);
-		var next_tokens = MultinomialSample(logits, config.vocab_size);
-		ctx.Release(logits);
+		var next_tokens = Generate(input, ref logits);
 		nn.Copy(input, next_tokens, ctx.Size(input));
 		ctx.Release(next_tokens);
 	}
 
 	void LlamaAttention(ref Texture hidden_states, Texture input_ids, string path) {
-		var query = nn.Linear(hidden_states, parameters[$"{path}.q_proj.weight"]);
-		var key   = nn.Linear(hidden_states, parameters[$"{path}.k_proj.weight"]);
-		var value = nn.Linear(hidden_states, parameters[$"{path}.v_proj.weight"]);
+		parameters.TryGetValue($"{path}.q_proj.bias", out var q_bias);
+		parameters.TryGetValue($"{path}.k_proj.bias", out var k_bias);
+		parameters.TryGetValue($"{path}.v_proj.bias", out var v_bias);
+		var query = nn.Linear(hidden_states, parameters[$"{path}.q_proj.weight"], q_bias);
+		var key   = nn.Linear(hidden_states, parameters[$"{path}.k_proj.weight"], k_bias);
+		var value = nn.Linear(hidden_states, parameters[$"{path}.v_proj.weight"], v_bias);
 		ctx.Release(hidden_states);
-		if(parameters.TryGetValue($"{path}.q_proj.bias", out var bias))
-			query = BatchRelease(nn.Fusion(MarkRelease(query), add:bias));
-		if(parameters.TryGetValue($"{path}.k_proj.bias", out bias))
-			key   = BatchRelease(nn.Fusion(MarkRelease(key),   add:bias));
-		if(parameters.TryGetValue($"{path}.v_proj.bias", out bias))
-			value = BatchRelease(nn.Fusion(MarkRelease(value), add:bias));
 
 		parameters.TryGetValue(Regex.Replace($"{path}.rotary_emb.weight", @"[.]\d+[.]", ".0."), out var rotary_emb);
 		var rotary = nn.Embedding(input_ids, rotary_emb ?? parameters[$"{path}.rotary_emb.weight"], chan:1);
@@ -78,11 +72,10 @@ public class Llama : GPTBase {
 		var norm_factor = 1f / Mathf.Sqrt(ctx.Size1(query)*4 / config.num_attention_heads);
 		var attn_scores = BatchRelease(nn.Linear(MarkRelease(query), keys, heads:config.num_attention_heads, weightHeads:config.num_key_value_heads));
 		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores), scale:norm_factor,
-			groups:config.num_attention_heads, indexRange:new Vector4(1-window_size, 1, 0, 1), rangeOffset:input_ids));
+			groups:config.num_attention_heads, window:new Vector4(1-window_size, 1, 0, 1), offset:input_ids));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:config.num_attention_heads, weightHeads:config.num_key_value_heads, transposeWeight:true));
-		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), parameters[$"{path}.o_proj.weight"]));
-		if(parameters.TryGetValue($"{path}.o_proj.bias", out bias))
-			hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:bias));
+		parameters.TryGetValue($"{path}.o_proj.bias", out var o_bias);
+		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), parameters[$"{path}.o_proj.weight"], o_bias));
 	}
 	void LlamaDecoderLayer(ref Texture hidden_states, Texture input_ids, string path) {
 		var attn_states = nn.GroupNorm(hidden_states, parameters[$"{path}.input_layernorm.weight"], null, config.rms_norm_eps, rmsNorm:true);

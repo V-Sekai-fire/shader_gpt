@@ -35,6 +35,7 @@ public abstract class GPTBase : MonoBehaviour {
 		set { nn.ctx = value; }
 	}
 
+	private Config _config;
 	protected Tokenizer tokenizer;
 	protected Dictionary<string, Texture> parameters;
 	protected List<int> tokens;
@@ -47,6 +48,7 @@ public abstract class GPTBase : MonoBehaviour {
 			ctx = new TensorContext(),
 			kernels = shaders.ToDictionary(x => x.name.Split('/')[1], x => x),
 		};
+		_config = JsonUtility.FromJson<Config>(configJson.text);
 		tokenizer = JsonUtility.FromJson<Tokenizer>(tokenizerJson.text);
 		parameters = textures.ToDictionary(x => x.name, x => x);
 		foreach(var pair in parameters)
@@ -118,12 +120,14 @@ public abstract class GPTBase : MonoBehaviour {
 		ctx.SetData(input, inputData);
 		return input;
 	}
-	protected Texture MultinomialSample(Texture lm_logits, int vocab_size, float temperature=0) {
-		// becomes GreedySearch when temperature == 0
-		var logits = nn.Copy(null, lm_logits,
-			inputOffset:new Vector2Int(ctx.Size0(lm_logits)-1, 0), size:new Vector2Int(1, ctx.Size1(lm_logits)));
-		var logits_gumbel = BatchRelease(nn.Gumbel(MarkRelease(logits), temperature));
-		return BatchRelease(nn.ArgMax(MarkRelease(logits_gumbel), indexRange:new Vector2(0,vocab_size)));
+	protected Texture Generate(Texture input, ref Texture scores) {
+		var inputs = ctx.PersistentGPUTensor("inputs", maxLength, 1);
+		nn.Scatter(inputs, input, input, chan:1);
+		if(ctx.Size0(scores) > 1)
+			scores = BatchRelease(nn.Copy(null, MarkRelease(scores),
+				size:new Vector2Int(1, ctx.Size1(scores)), inputOffset:new Vector2Int(ctx.Size0(scores)-1, 0)));
+		var gumbel = BatchRelease(nn.Gumbel(MarkRelease(scores), temperature));
+		return BatchRelease(nn.ArgMax(MarkRelease(gumbel), window:new Vector2(0, _config.vocab_size)));
 	}
 
 	// utilities
@@ -165,6 +169,10 @@ public abstract class GPTBase : MonoBehaviour {
 			ctx.FixSize0(quantTex, (size0+3)/4);
 	}
 
+	[System.Serializable]
+	class Config {
+		public int vocab_size;
+	}
 	[System.Serializable]
 	public class Tokenizer {
 		public string[] vocab;

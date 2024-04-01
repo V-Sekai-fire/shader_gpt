@@ -69,8 +69,8 @@ public class GPTGenerator : MonoBehaviour
 			Graphics.Blit(null, bufOutput, matOutput, 0);
 		}
 
-		var deltaIndexRangeSample = new Vector4(0, -skipLastToken, 0, 0);
-		matSample.SetVector("_IndexRange", matSample.GetVector("_IndexRange") + deltaIndexRangeSample);
+		var matSampleDeltaWindow = new Vector4(0, -skipLastToken, 0, 0);
+		matSample.SetVector("_Window", matSample.GetVector("_Window") + matSampleDeltaWindow);
 
 		matGumbel.SetVector("_Mul", Vector4.one*temperature);
 		if(inputIndex < inputTokens.Length) {
@@ -92,7 +92,7 @@ public class GPTGenerator : MonoBehaviour
 			Graphics.Blit(null, rt, mat, 0);
 		}
 
-		matSample.SetVector("_IndexRange", matSample.GetVector("_IndexRange") - deltaIndexRangeSample);
+		matSample.SetVector("_Window", matSample.GetVector("_Window") - matSampleDeltaWindow);
 		inputIndex++;
 	}
 
