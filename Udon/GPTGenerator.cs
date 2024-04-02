@@ -16,6 +16,7 @@ public class GPTGenerator : MonoBehaviour
 	public GameObject modelPrefab;
 	public int maxLength = 2048;
 	public float temperature = 0;
+	public float repetitionPenalty = 1f;
 	public int skipLastToken = 0;
 	public int frameStep = 1;
 #if UDON
@@ -26,6 +27,7 @@ public class GPTGenerator : MonoBehaviour
 	public string eventMethod;
 
 	private Material[] materials;
+	private Material matRepeat;
 	private Material matGumbel;
 	private Material matSample;
 	private Material matOutput;
@@ -44,14 +46,20 @@ public class GPTGenerator : MonoBehaviour
 
 		matOutput = materials[materials.Length-1];
 		bufOutput = (RenderTexture)matOutput.GetTexture("_OutputTex");
+		matRepeat = null;
 		matGumbel = null;
 		matSample = null;
 		foreach(var mat in materials) {
 			var rt = (RenderTexture)mat.GetTexture("_OutputTex");
-			if(mat.shaderKeywords.Length == 1 && mat.shaderKeywords[0] == "FUNC_GUMBEL")
-				matGumbel = mat;
-			if(mat.shaderKeywords.Length == 1 && mat.shaderKeywords[0] == "REDUCE_MINMAX")
-				matSample = mat;
+			if(mat.shaderKeywords.Length == 1) {
+				var keyword = mat.shaderKeywords[0];
+				if(keyword == "FUNC_RELU")
+					matRepeat = mat;
+				if(keyword == "FUNC_GUMBEL")
+					matGumbel = mat;
+				if(keyword == "REDUCE_MINMAX")
+					matSample = mat;
+			}
 		}
 	}
 
@@ -72,6 +80,8 @@ public class GPTGenerator : MonoBehaviour
 		var matSampleDeltaWindow = new Vector4(0, -skipLastToken, 0, 0);
 		matSample.SetVector("_Window", matSample.GetVector("_Window") + matSampleDeltaWindow);
 
+		matRepeat.SetFloat("_Eps", repetitionPenalty*repetitionPenalty);
+		matRepeat.SetVector("_Mul", Vector4.one/repetitionPenalty);
 		matGumbel.SetVector("_Mul", Vector4.one*temperature);
 		if(inputIndex < inputTokens.Length) {
 			matOutput.SetVector("_Mul", Vector4.zero);

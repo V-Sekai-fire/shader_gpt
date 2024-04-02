@@ -157,6 +157,7 @@ MonoBehaviour:
   - {fileID: 4800000, guid: dcbde526ae94fb34cba27ced583baa5c, type: 3}
   - {fileID: 4800000, guid: dcd3494d67569af40b6eda155a980e3e, type: 3}
   - {fileID: 4800000, guid: 4bd563b25862a78428d5ff32c8c4f548, type: 3}
+  - {fileID: 4800000, guid: 36a06066d5d89f744a5cd35cd059b882, type: 3}
   textures:
   - {fileID: 2800000, guid: 557b77c097ed42e43a13651ec1bfdc83, type: 3}
   - {fileID: 2800000, guid: 931f73dbb7cdbb548944211ef27f45c8, type: 3}
@@ -271,6 +272,7 @@ MonoBehaviour:
   testcaseJson: {fileID: 4900000, guid: 187c34defe2bf7a4eb43510d31e1b116, type: 3}
   maxLength: 2048
   temperature: 0
+  repetitionPenalty: 1
   interval: 0.1
   task: 0
   outputText: {fileID: 1928723975}

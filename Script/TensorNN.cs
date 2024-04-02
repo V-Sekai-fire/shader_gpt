@@ -11,6 +11,15 @@ public class TensorNN {
 	public int linearLod = 2; // 3 has higher occupancy but similar gpu time
 	public int reduceSplit = 64;
 
+	public Texture Transpose(Texture input, Vector2Int size) {
+		var output = ctx.GPUTensor(size.x, size.y, dtype:ctx.DType(input));
+		var mat = ctx.Operator(kernels["Embedding"]);
+		SetTensor(mat, "_Output", output);
+		SetTensor(mat, "_Weight", input);
+		EnableOption(mat, Keyword.WEIGHT_TRANSPOSED);
+		ctx.Blit(output, mat);
+		return output;
+	}
 	public Texture Embedding(Texture input, Texture weight, bool transposeWeight=false, int chan=0) {
 		var output = ctx.GPUTensor(ctx.Size0(input), transposeWeight ? ctx.Size0(weight)/4 : ctx.Size1(weight));
 		var mat = ctx.Operator(kernels["Embedding"]);

@@ -18,6 +18,7 @@ public abstract class GPTBase : MonoBehaviour {
 	[Header("Generation")]
 	public int maxLength = 2048;
 	public float temperature = 0;
+	public float repetitionPenalty = 1f;
 	public float interval = 0.1f;
 
 	public enum Task {
@@ -120,12 +121,23 @@ public abstract class GPTBase : MonoBehaviour {
 		ctx.SetData(input, inputData);
 		return input;
 	}
+	protected void RepetitionPenaltyLogitsProcessor(Texture input_ids, ref Texture scores, float penalty, Texture last_input_ids) {
+		var inputs_T = nn.Transpose(input_ids, new Vector2Int(1, (ctx.Size0(input_ids)+3)/4));
+		inputs_T = BatchRelease(nn.Fusion(MarkRelease(inputs_T), @default:4*ctx.Size1(scores)*Vector4.one,
+			window:new Vector4(-maxLength, ctx.Size0(last_input_ids), 0, 1), offset:last_input_ids));
+		var mask = nn.Fusion(scores, scale:0f);
+		BatchRelease(nn.Scatter((RenderTexture)mask, MarkRelease(inputs_T), null, axis1:true, fill:1f));
+		var penal = nn.Fusion(scores, scale:1f/penalty, func:TensorNN.Keyword.FUNC_RELU, eps:penalty*penalty);
+		var diff = BatchRelease(nn.Fusion(scores, scale:-1, add:MarkRelease(penal)));
+		scores = BatchRelease(nn.Fusion(MarkRelease(mask), mul:MarkRelease(diff), add:MarkRelease(scores)));
+	}
 	protected Texture Generate(Texture input, ref Texture scores) {
 		var inputs = ctx.PersistentGPUTensor("inputs", maxLength, 1);
 		nn.Scatter(inputs, input, input, chan:1);
 		if(ctx.Size0(scores) > 1)
 			scores = BatchRelease(nn.Copy(null, MarkRelease(scores),
 				size:new Vector2Int(1, ctx.Size1(scores)), inputOffset:new Vector2Int(ctx.Size0(scores)-1, 0)));
+		RepetitionPenaltyLogitsProcessor(inputs, ref scores, repetitionPenalty, input);
 		var gumbel = BatchRelease(nn.Gumbel(MarkRelease(scores), temperature));
 		return BatchRelease(nn.ArgMax(MarkRelease(gumbel), window:new Vector2(0, _config.vocab_size)));
 	}
