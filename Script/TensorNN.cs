@@ -11,35 +11,54 @@ public class TensorNN {
 	public int linearLod = 2; // 3 has higher occupancy but similar gpu time
 	public int reduceSplit = 64;
 
-	public Texture Transpose(Texture input, Vector2Int size) {
-		var output = ctx.GPUTensor(size.x, size.y, dtype:ctx.DType(input));
-		var mat = ctx.Operator(kernels["Embedding"]);
+	public Texture IndexSelect(Texture input, (Texture tex, int chan) index, bool inputT=false, bool axis1=false) {
+		var output = axis1
+			? ctx.GPUTensor(inputT ? (ctx.Size1(input)+3)/4 : ctx.Size0(input), index.tex ? ctx.Size1(index.tex) : index.chan)
+			: ctx.GPUTensor(index.tex ? ctx.Size0(index.tex) : index.chan, inputT ? (ctx.Size0(input)+3)/4 : ctx.Size1(input));
+		var mat = ctx.Operator(kernels["Gather"]);
 		SetTensor(mat, "_Output", output);
-		SetTensor(mat, "_Weight", input);
-		EnableOption(mat, Keyword.WEIGHT_TRANSPOSED);
-		ctx.Blit(output, mat);
-		return output;
-	}
-	public Texture Embedding(Texture input, Texture weight, bool transposeWeight=false, int chan=0) {
-		var output = ctx.GPUTensor(ctx.Size0(input), transposeWeight ? ctx.Size0(weight)/4 : ctx.Size1(weight));
-		var mat = ctx.Operator(kernels["Embedding"]);
-		SetTensor(mat, "_Output", output);
-		SetTensor(mat, "_Input",  input);
-		SetTensor(mat, "_Weight", weight);
-		if(quants.TryGetValue(weight, out var quant))
-			SetTensorQuant(mat, "_Scale", quant);
-		if(transposeWeight)
+		if(axis1)
+			EnableOption(mat, Keyword.AXIS_LAST);
+		if(input)
+			SetTensor(mat, "_Input", input);
+		if(quants.TryGetValue(input, out var quant))
+			SetTensorQuant(mat, "_Quant", quant);
+		if(inputT)
 			EnableOption(mat, Keyword.WEIGHT_TRANSPOSED);
-		mat.SetInt("_InputChan", chan);
+		if(index.tex)
+			SetTensor(mat, "_Index", index.tex);
+		mat.SetInt("_IndexChan", index.chan);
 		ctx.Blit(output, mat);
 		return output;
 	}
-	public Texture Linear(Texture input, Texture weight, Texture bias=null, bool transposeWeight=false, int heads=1, int weightHeads=0) {
+	public Texture IndexCopy(RenderTexture output, (Texture tex, int chan) index, Texture input, float fill=0, bool axis1=false) {
+		const int batchSize = 4096;
+		Debug.Assert(!input || (axis1 ? ctx.Size1(index.tex) == ctx.Size1(input) : ctx.Size0(index.tex) == ctx.Size0(input)));
+		var count = axis1 ? ctx.Size1(index.tex)*4 : ctx.Size0(index.tex);
+		for(int off=0; off<count; off+=batchSize)
+		for(int mask=axis1?1:15; mask<16; mask<<=1) {
+			var mat = ctx.Operator(kernels["Scatter"]);
+			SetTensor(mat, "_Output", output);
+			if(axis1)
+				EnableOption(mat, Keyword.AXIS_LAST);
+			if(input)
+				SetTensor(mat, "_Input", input);
+			mat.SetVector("_Input", fill * Vector4.one);
+			if(index.tex)
+				SetTensor(mat, "_Index", index.tex);
+			mat.SetVector("_IndexOff", axis1 ? new Vector2(0,off) : new Vector2(off,0));
+			mat.SetInt("_IndexChan", index.chan);
+			mat.SetInt("_ColorMask", mask);
+			ctx.Blit(output, mat);
+		}
+		return output;
+	}
+	public Texture Linear(Texture input, Texture weight, Texture bias=null, bool weightT=false, int heads=1, int weightHeads=0) {
 		if(weightHeads == 0)
 			weightHeads = heads;
 		Debug.Assert(ctx.Size1(input)%heads == 0 && ctx.Size1(weight)%weightHeads == 0 && ctx.Size0(weight)%4 == 0 && heads%weightHeads == 0);
-		Debug.Assert(ctx.Size1(input)/heads == (transposeWeight ? ctx.Size0(weight)/4 : ctx.Size1(weight)/weightHeads));
-		var size1 = (transposeWeight ? ctx.Size1(weight)/weightHeads : ctx.Size0(weight)/4) * heads;
+		Debug.Assert(ctx.Size1(input)/heads == (weightT ? ctx.Size0(weight)/4 : ctx.Size1(weight)/weightHeads));
+		var size1 = (weightT ? ctx.Size1(weight)/weightHeads : ctx.Size0(weight)/4) * heads;
 		var lazyMips = ctx.Lod(input) == 0 && ctx.Lod(weight) == 0; // when adjacent operator is independent
 		var output = ctx.GPUTensor(ctx.Size0(input), size1, dtype:ctx.DType(input), lod:linearLod, autoGenMips:!lazyMips);
 		var mat = ctx.Operator(kernels["Linear"]);
@@ -47,8 +66,8 @@ public class TensorNN {
 		SetTensor(mat, "_Input",  input);
 		SetTensor(mat, "_Weight", weight);
 		if(quants.TryGetValue(weight, out var quant))
-			SetTensorQuant(mat, "_Scale", quant);
-		if(transposeWeight)
+			SetTensorQuant(mat, "_Quant", quant);
+		if(weightT)
 			EnableOption(mat, Keyword.WEIGHT_TRANSPOSED);
 		if(bias)
 			SetTensor(mat, "_Bias", bias);
@@ -165,29 +184,10 @@ public class TensorNN {
 		ctx.Blit(output, mat);
 		return output;
 	}
-	public Texture Scatter(RenderTexture output, Texture index, Texture src, int chan=0, bool axis1=false, float fill=0) {
-		const int batchSize = 4096;
-		Debug.Assert(!src || (axis1 ? ctx.Size1(index) == ctx.Size1(src) : ctx.Size0(index) == ctx.Size0(src)));
-		var count = axis1 ? ctx.Size1(index)*4 : ctx.Size0(index);
-		for(int off=0; off<count; off+=batchSize)
-		for(int mask=axis1?1:15; mask<16; mask<<=1) {
-			var mat = ctx.Operator(kernels["Scatter"]);
-			if(axis1)
-				EnableOption(mat, Keyword.WEIGHT_TRANSPOSED);
-			SetTensor(mat, "_Output", output);
-			SetTensor(mat, "_Input",  index);
-			if(src)
-				SetTensor(mat, "_Weight", src);
-			else
-				mat.SetVector("_Weight", fill * Vector4.one);
-			mat.SetVector("_InputOff", axis1 ? new Vector2(0,off) : new Vector2(off,0));
-			mat.SetInt("_InputChan", chan);
-			mat.SetInt("_ColorMask", mask);
-			ctx.Blit(output, mat);
-		}
-		return output;
-	}
 
+	public Texture Transpose(Texture input, int size0) {
+		return IndexSelect(input, (null, size0), inputT:true);
+	}
 	public Texture ArgMax(Texture input, Vector4? window=null) {
 		return _Reduce(input, Keyword.REDUCE_MINMAX, window:window,
 			linear:new Matrix4x4(default, default, default, new Vector4(1,0,0,0)));
@@ -230,6 +230,7 @@ public class TensorNN {
 
 	public enum Keyword {
 		None = 0,
+		AXIS_LAST,
 		WEIGHT_TRANSPOSED,
 		WEIGHT_QUANTIZED_S24_Z8,
 		WEIGHT_QUANTIZED_E8,

@@ -53,14 +53,14 @@ public class GPTNeo : GPTBase {
 
 		var keys   = ctx.PersistentGPUTensor($"{path}.k", maxLength, ctx.Size1(key), dtype:ctx.DType(key));
 		var values = ctx.PersistentGPUTensor($"{path}.v", maxLength, ctx.Size1(value), dtype:ctx.DType(value));
-		BatchRelease(nn.Scatter(keys,   input_ids, MarkRelease(key),   chan:1));
-		BatchRelease(nn.Scatter(values, input_ids, MarkRelease(value), chan:1));
+		BatchRelease(nn.IndexCopy(keys,   (input_ids, 1), MarkRelease(key)));
+		BatchRelease(nn.IndexCopy(values, (input_ids, 1), MarkRelease(value)));
 
 		var window_size = layer_id%2==1 ? config.window_size : config.max_position_embeddings;
 		var attn_scores = BatchRelease(nn.Linear(MarkRelease(query), keys, heads:config.num_heads));
-		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores), groups:config.num_heads,
-			window:new Vector4(1-window_size, 1, 0, 1), offset:input_ids));
-		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:config.num_heads, transposeWeight:true));
+		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores),
+			groups:config.num_heads, window:new Vector4(1-window_size, 1, 0, 1), offset:input_ids));
+		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:config.num_heads, weightT:true));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), parameters[$"{path}.out_proj.weight"], parameters[$"{path}.out_proj.bias"]));
 	}
 	void GPTNeoBlock(ref Texture hidden_states, Texture input_ids, string path, int layer_id) {
@@ -75,8 +75,8 @@ public class GPTNeo : GPTBase {
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(mlp_states)));
 	}
 	Texture GPTNeoModel(Texture input_ids, string path) {
-		var inputs_embeds   = nn.Embedding(input_ids, parameters[$"{path}.wte.weight.T"], transposeWeight:true, chan:0);
-		var position_embeds = nn.Embedding(input_ids, parameters[$"{path}.wpe.weight.T"], transposeWeight:true, chan:1);
+		var inputs_embeds   = nn.IndexSelect(parameters[$"{path}.wte.weight.T"], (input_ids, 0), inputT:true);
+		var position_embeds = nn.IndexSelect(parameters[$"{path}.wpe.weight.T"], (input_ids, 1), inputT:true);
 		var hidden_states   = BatchRelease(nn.Fusion(MarkRelease(inputs_embeds), add:MarkRelease(position_embeds)));
 		for(int i=0; i<config.num_layers; i++)
 			GPTNeoBlock(ref hidden_states, input_ids, path:$"{path}.h.{i}", layer_id:i);
@@ -86,7 +86,7 @@ public class GPTNeo : GPTBase {
 	(Texture, Texture) GPTNeoForCausalLM(Texture input_ids) {
 		var hidden_states = GPTNeoModel(input_ids, path:"transformer");
 		parameters.TryGetValue("lm_head.weight.T", out var lm_head);
-		var lm_logits = nn.Linear(hidden_states, lm_head ?? parameters["transformer.wte.weight.T"], transposeWeight:true);
+		var lm_logits = nn.Linear(hidden_states, lm_head ?? parameters["transformer.wte.weight.T"], weightT:true);
 		return (hidden_states, lm_logits);
 	}
 }

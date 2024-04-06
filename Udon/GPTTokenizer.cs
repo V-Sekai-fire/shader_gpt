@@ -99,7 +99,7 @@ public class GPTTokenizer : MonoBehaviour
 			// from GPT2Tokenizer._tokenize
 			while(i < j) {
 				var k = SplitNextToken(text, i, j);
-				BytePairEncode(ConvertToUtf8(text, i, k));
+				BytePairEncode(System.Text.Encoding.UTF8.GetBytes(text, i, k-i));
 				i = k;
 			}
 			if(token != null) {
@@ -110,18 +110,21 @@ public class GPTTokenizer : MonoBehaviour
 		return Take(tokenArray, tokenCount);
 	}
 	private string[] partArray = new string[MAX_TOKENS];
-	private void BytePairEncode(string bytes) {
+	private void BytePairEncode(byte[] bytes) {
 		var n = bytes.Length;
+		var chars = new char[n];
+		System.Array.Copy(bytes, chars, n);
+		var bstr = new string(chars);
 		var parts = partArray;
 		var npart = 0;
 		for(int i=0; i<n; i++) {
-			var b = char.ConvertToUtf32(bytes, i);
+			var b = bstr[i];
 			var k = b >= 0b11110000 ? 4 : b >= 0b11100000 ? 3 : b >= 0b11000000 ? 2 : 1;
-			if(i+k <= n && System.Array.IndexOf(vocab, bytes.Substring(i, k)) >= 0) { // prefer full codepoint
-				parts[npart++] = bytes.Substring(i, k);
+			if(i+k <= n && System.Array.IndexOf(vocab, bstr.Substring(i, k)) >= 0) { // prefer full codepoint
+				parts[npart++] = bstr.Substring(i, k);
 				i += k-1;
 			} else // byte fallback
-				parts[npart++] = bytes.Substring(i, 1);
+				parts[npart++] = bstr.Substring(i, 1);
 		}
 		BytePairMerge(parts, npart);
 	}
@@ -175,24 +178,6 @@ public class GPTTokenizer : MonoBehaviour
 			} while(!char.IsLetter(text, i) && !char.IsNumber(text, i) && !char.IsWhiteSpace(text, i));
 		}
 		return i;
-	}
-	static string ConvertToUtf8(string text, int i, int j) {
-		var s = "";
-		while(i<j) {
-			var c = char.ConvertToUtf32(text, i);
-			if (c <= 0x7F) {
-				s += char.ConvertFromUtf32(c);
-			} else if (c <= 0x07FF) {
-				s += char.ConvertFromUtf32(0b11000000 | (c >> 6));
-				s += char.ConvertFromUtf32(0b10000000 | (0b00111111 & c));
-			} else {
-				s += char.ConvertFromUtf32(0b11100000 | (c >> 12));
-				s += char.ConvertFromUtf32(0b10000000 | (0b00111111 & (c >> 6)));
-				s += char.ConvertFromUtf32(0b10000000 | (0b00111111 & c));
-			}
-			i += c < 0x10000 ? 1 : 2;
-		}
-		return s;
 	}
 	static T[] Take<T>(T[] src, int n) {
 		var dst = new T[n];

@@ -1,15 +1,15 @@
 Shader "GPT/Scatter" {
 Properties {
 	_OutputDim("_OutputDim", Vector) = (1, 1, 0, 0)
-	_InputDim ("_InputDim",  Vector) = (1, 1, 0, 0)
-	_WeightDim("_WeightDim", Vector) = (0, 0, 0, 0) // zero = use constant weight
+	_InputDim ("_InputDim",  Vector) = (0, 0, 0, 0) // zero = use constant
+	_IndexDim ("_IndexDim",  Vector) = (1, 1, 0, 0)
 	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
 	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
-	[NoScaleOffset]  _WeightTex("_WeightTex", 2D) = "black" {}
-	_InputOff ("_InputOff",  Vector) = (0, 0, 0, 0)
-	_InputChan("_InputChan", Int) = 0
+	[NoScaleOffset]  _IndexTex ("_IndexTex",  2D) = "black" {}
+	_Input    ("_Input",     Vector) = (0, 0, 0, 0)
+	_IndexOff ("_IndexOff",  Vector) = (0, 0, 0, 0)
+	_IndexChan("_IndexChan", Int) = 0
 	_ColorMask("_ColorMask", Int) = 15
-	_Weight   ("_Weight",    Vector) = (0, 0, 0, 0)
 }
 SubShader {
 	Tags { "PreviewType"="Plane" } // prevent freezing Unity editor
@@ -18,12 +18,12 @@ HLSLINCLUDE
 #include "Common.hlsl"
 
 uint4 _OutputDim;
-Texture2D<float4> _InputTex;  uint4 _InputDim;
-Texture2D<float4> _WeightTex; uint4 _WeightDim;
-uniform uint2 _InputOff;
-uniform uint _InputChan;
+Texture2D<float4> _InputTex; uint4 _InputDim;
+Texture2D<float4> _IndexTex; uint4 _IndexDim;
+uniform float4 _Input;
+uniform uint2  _IndexOff;
+uniform uint _IndexChan;
 uniform uint _ColorMask;
-uniform float4 _Weight;
 
 struct GeomInput {};
 struct GeomOutput { float4 posCS : SV_Position; };
@@ -42,18 +42,18 @@ void geom(triangle GeomInput input[3], inout TriangleStream<GeomOutput> stream, 
 			return;
 		uint payload = src;
 		float4 aabb = float4(0,0,1,1);
-#ifdef WEIGHT_TRANSPOSED
-		if(any(_InputOff+uint2(_InputChan, src/4) >= _InputDim.xy))
+#ifdef AXIS_LAST
+		if(any(_IndexOff+uint2(_IndexChan, src/4) >= _IndexDim.xy))
 			return;
-		uint dst = LOAD_TENSOR(_Input, _InputOff+uint2(_InputChan, src/4))[src%4];
+		uint dst = LOAD_TENSOR(_Index, _IndexOff+uint2(_IndexChan, src/4))[src%4];
 		if(_ColorMask != (1<<(3-dst%4))) // RGBA
 			continue;
 		aabb.xz = (float2(0,1) + (dst/4 >> _OutputDim.z)) / (_OutputDim.y>>_OutputDim.z);
 		payload = (payload<<_OutputDim.z) | (dst/4 & ((1<<_OutputDim.z)-1));
 #else
-		if(any(_InputOff+uint2(src, _InputChan/4) >= _InputDim.xy))
+		if(any(_IndexOff+uint2(src, _IndexChan/4) >= _IndexDim.xy))
 			return;
-		uint dst = LOAD_TENSOR(_Input, _InputOff+uint2(src, _InputChan/4))[_InputChan%4];
+		uint dst = LOAD_TENSOR(_Index, _IndexOff+uint2(src, _IndexChan/4))[_IndexChan%4];
 		aabb.yw = (float2(0,1) + dst) / _OutputDim.x;
 #endif
 		aabb = aabb*2-1;
@@ -68,17 +68,17 @@ void geom(triangle GeomInput input[3], inout TriangleStream<GeomOutput> stream, 
 	}
 }
 float4 main(uint2 pos, uint payload) {
-	// torch.Tensor.scatter_()
-	// (transpose ? output[i][input[c][j]] : output[input[i][c]][j]) = weight[i][j]
+	// torch.Tensor.index_copy_(axis, index, input)
+	// (axis == 1 ? output[i,index[c,j][jj]/4][index[c,j][jj]%4] : output[index[i,c/4][c%4],j][jj]) = input[i,j][jj]
 
-#ifdef WEIGHT_TRANSPOSED
+#ifdef AXIS_LAST
 	if((pos.y-payload) & ((1<<_OutputDim.z)-1))
 		discard;
 	uint src = payload>>_OutputDim.z;
-	return _WeightDim.x ? LOAD_TENSOR(_Weight, _InputOff+uint2(pos.x, src/4))[src%4] : _Weight;
+	return _InputDim.x ? LOAD_TENSOR(_Input, _IndexOff+uint2(pos.x, src/4))[src%4] : _Input;
 #else
 	uint src = payload;
-	return _WeightDim.x ? LOAD_TENSOR(_Weight, _InputOff+uint2(src, pos.y)) : _Weight;
+	return _InputDim.x ? LOAD_TENSOR(_Input, _IndexOff+uint2(src, pos.y)) : _Input;
 #endif
 }
 float4 frag(float4 screenPos : SV_Position) : SV_Target {
@@ -95,7 +95,7 @@ HLSLPROGRAM
 #pragma vertex vert
 #pragma geometry geom
 #pragma fragment frag
-#pragma shader_feature WEIGHT_TRANSPOSED
+#pragma shader_feature AXIS_LAST
 ENDHLSL
 	}
 }
