@@ -20,6 +20,8 @@ def imwrite(path, data):
 			cv2.IMWRITE_EXR_COMPRESSION_PIZ)) # https://aras-p.info/blog/2021/08/04/EXR-Lossless-Compression/
 	elif data.dtype == np.ubyte:
 		cv2.imwrite(str(path), data)
+	else:
+		raise NotImplementedError
 
 def pad_align(data, align):
 	return np.pad(data, [(0,(-n)%m) for n, m in zip(data.shape, align)])
@@ -53,8 +55,6 @@ def export_gptq(layer):
 	assert layer.group_size % 4 == 0, f"group_size {layer.group_size} should be a multiple of 4"
 	assert 8 % layer.bits == 0, f"bits {layer.bits} should be a divisor of 8"
 	assert str(type(layer)).find("exllama") < 0, "exllama backend is not supported. please set disable_exllama=True in quantization config"
-	assert torch.equal(layer.g_idx, torch.tensor([i // layer.group_size for i in range(layer.g_idx.shape[0])],
-		dtype=torch.int32, device=layer.g_idx.device)), "act-order is not supported"
 	wf = torch.tensor(list(range(0, 32, layer.bits)), dtype=torch.int32).unsqueeze(0).to(layer.qweight.device)
 
 	scales = layer.scales
@@ -68,17 +68,28 @@ def export_gptq(layer):
 	).to(torch.uint8).bitwise_and(2**layer.bits - 1)
 	weight = weight.reshape(weight.shape[0] * weight.shape[1], weight.shape[2])
 
+	default_g_idx = torch.arange(layer.g_idx.shape[0], device=layer.g_idx.device) // layer.group_size
+	if torch.all(layer.g_idx == default_g_idx):
+		indices = None
+	else:
+		g_idx = layer.g_idx.long()
+		g_idx, indices = torch.sort(g_idx)
+		assert torch.all(g_idx == default_g_idx), "g_idx is not a permutation"
+
 	mult = 255 // (2**layer.bits - 1)
 	weight = weight * mult
 	zeros  = zeros * mult
 	scales = scales.float() / mult * 256
 	scales = scales.view(dtype=torch.int32).bitwise_and(0xFFFFFF00).bitwise_or(zeros).view(dtype=torch.float32)
 
+	if indices is not None:
+		weight = weight[indices,:]
+		indices = indices.float().cpu().numpy() # use float for int indices
 	weight = weight.transpose(0,1).cpu().numpy()
 	scales = scales.transpose(0,1).cpu().numpy()
 	scales = pad_align(scales, [4, 1]).reshape(-1, 4, scales.shape[1]).transpose(0,2,1)
 	scales = scales.reshape(scales.shape[0], -1)
-	return weight, scales
+	return weight, scales, indices
 
 def export_lm(model, folder, force_write=False, quantize=None, max_positions=16384):
 	os.makedirs(folder, exist_ok=True)
@@ -179,15 +190,16 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 
 		filenames = []
 		if id(data) in gptq_layers:
-			filenames = (f"{name}.png", f"{name}.q8.exr")
+			filenames = (f"{name}.png", f"{name}.q8.exr", f"{name}.q8.idx.exr")
 		elif quantizable:
 			filenames = (f"{name}.exr", f"{name}.q8.png")
 		else:
 			filenames = (f"{name}.exr",)
 
-		possible_filenames = (f"{name}.exr", f"{name}.png", f"{name}.q8.exr", f"{name}.q8.png")
-		if not force_write and set(x for x in possible_filenames if (folder/x).exists()) == set(filenames):
+		possible_filenames = [f"{name}.exr", f"{name}.png", f"{name}.q8.exr", f"{name}.q8.png"]
+		if not force_write and all((folder/x).exists() == (x in filenames) for x in possible_filenames):
 			continue
+		possible_filenames.append(f"{name}.q8.idx.exr")
 		for x in possible_filenames:
 			(folder/x).unlink(missing_ok=True)
 
@@ -198,6 +210,8 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 		else:
 			arrays = (data.cpu().numpy(),)
 		for filename, array in zip(filenames, arrays):
+			if array is None:
+				continue
 			print(f"\t\t{filename}\t{tuple(array.shape)}")
 			if len(array.shape) == 2:
 				array = pad_align(array, [1, 4]).reshape(array.shape[0], -1, 4)

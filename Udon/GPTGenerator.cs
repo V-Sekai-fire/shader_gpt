@@ -17,7 +17,6 @@ public class GPTGenerator : MonoBehaviour
 	public int maxLength = 2048;
 	public float temperature = 0;
 	public float repetitionPenalty = 1f;
-	public int skipLastToken = 0;
 	public int frameStep = 1;
 #if UDON
 	public VRC.Udon.UdonBehaviour eventTarget;
@@ -29,7 +28,6 @@ public class GPTGenerator : MonoBehaviour
 	private Material[] materials;
 	private Material matRepeat;
 	private Material matGumbel;
-	private Material matSample;
 	private Material matOutput;
 	private RenderTexture bufOutput;
 	void LoadModel() {
@@ -48,7 +46,6 @@ public class GPTGenerator : MonoBehaviour
 		bufOutput = (RenderTexture)matOutput.GetTexture("_OutputTex");
 		matRepeat = null;
 		matGumbel = null;
-		matSample = null;
 		foreach(var mat in materials) {
 			var rt = (RenderTexture)mat.GetTexture("_OutputTex");
 			if(mat.shaderKeywords.Length == 1) {
@@ -57,8 +54,6 @@ public class GPTGenerator : MonoBehaviour
 					matRepeat = mat;
 				if(keyword == "FUNC_GUMBEL")
 					matGumbel = mat;
-				if(keyword == "REDUCE_MINMAX")
-					matSample = mat;
 			}
 		}
 	}
@@ -76,9 +71,6 @@ public class GPTGenerator : MonoBehaviour
 			matOutput.SetVector("_Add", new Vector4(inputTokens[inputIndex-1],inputIndex-1,0,0));
 			Graphics.Blit(null, bufOutput, matOutput, 0);
 		}
-
-		var matSampleDeltaWindow = new Vector4(0, -skipLastToken, 0, 0);
-		matSample.SetVector("_Window", matSample.GetVector("_Window") + matSampleDeltaWindow);
 
 		matRepeat.SetFloat("_Eps", repetitionPenalty*repetitionPenalty);
 		matRepeat.SetVector("_Mul", Vector4.one/repetitionPenalty);
@@ -102,7 +94,6 @@ public class GPTGenerator : MonoBehaviour
 			Graphics.Blit(null, rt, mat, 0);
 		}
 
-		matSample.SetVector("_Window", matSample.GetVector("_Window") - matSampleDeltaWindow);
 		inputIndex++;
 	}
 

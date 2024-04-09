@@ -165,7 +165,7 @@ public class ModelImporter {
 	static TextureImporterFormat CalcCompressionFormat(string path, DataType dtype) {
 		if(path.EndsWith(".q8.png"))
 			return TextureImporterFormat.RGBA32;
-		else if(path.EndsWith(".q8.exr"))
+		else if(path.EndsWith(".q8.exr") || path.EndsWith(".q8.idx.exr"))
 			return TextureImporterFormat.RGBAFloat;
 		else if(File.Exists(Path.ChangeExtension(path, ".q8.png")) || File.Exists(Path.ChangeExtension(path, ".q8.exr"))) {
 			if(dtype == DataType.Unorm4)
@@ -177,9 +177,6 @@ public class ModelImporter {
 			return TextureImporterFormat.RGBA32;
 		return dtype == DataType.Float16 ? TextureImporterFormat.RGBAHalf : TextureImporterFormat.RGBAFloat;
 	}
-	// static long GetFileSize(string path) {
-	// 	return new FileInfo(path).Length;
-	// }
 	static string[] GetTexturePaths(string folder) {
 		return AssetDatabase.FindAssets("t:Texture", new string[]{folder}).Select(
 			guid => AssetDatabase.GUIDToAssetPath(guid)).ToArray();

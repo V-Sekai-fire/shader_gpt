@@ -7,7 +7,8 @@ namespace ShaderGPT {
 public class TensorNN {
 	public TensorContext ctx;
 	public Dictionary<string, Shader> kernels;
-	public Dictionary<Texture, Texture> quants = new Dictionary<Texture, Texture>();
+	public Dictionary<Texture, Texture> quantizers = new Dictionary<Texture, Texture>();
+	public Dictionary<Texture, Texture> permuters = new Dictionary<Texture, Texture>();
 	public int linearLod = 2; // 3 has higher occupancy but similar gpu time
 	public int reduceSplit = 64;
 
@@ -21,8 +22,8 @@ public class TensorNN {
 			EnableOption(mat, Keyword.AXIS_LAST);
 		if(input)
 			SetTensor(mat, "_Input", input);
-		if(quants.TryGetValue(input, out var quant))
-			SetTensorQuant(mat, "_Quant", quant);
+		if(quantizers.TryGetValue(input, out var quantizer))
+			SetTensorQuant(mat, "_Quant", quantizer);
 		if(inputT)
 			EnableOption(mat, Keyword.WEIGHT_TRANSPOSED);
 		if(index.tex)
@@ -56,22 +57,29 @@ public class TensorNN {
 	public Texture Linear(Texture input, Texture weight, Texture bias=null, bool weightT=false, int heads=1, int weightHeads=0) {
 		if(weightHeads == 0)
 			weightHeads = heads;
+		if(permuters.TryGetValue(weight, out var permuter))
+			Debug.Assert(heads == 1 && weightHeads == 1 && !weightT);
+		if(permuter && !weightT)
+			input = IndexSelect(input, (permuter, 0), axis1:true);
 		Debug.Assert(ctx.Size1(input)%heads == 0 && ctx.Size1(weight)%weightHeads == 0 && ctx.Size0(weight)%4 == 0 && heads%weightHeads == 0);
 		Debug.Assert(ctx.Size1(input)/heads == (weightT ? ctx.Size0(weight)/4 : ctx.Size1(weight)/weightHeads));
 		var size1 = (weightT ? ctx.Size1(weight)/weightHeads : ctx.Size0(weight)/4) * heads;
+		Debug.Assert(!bias || (ctx.Size0(bias) == 1 && ctx.Size1(bias) == size1));
 		var lazyMips = ctx.Lod(input) == 0 && ctx.Lod(weight) == 0; // when adjacent operator is independent
 		var output = ctx.GPUTensor(ctx.Size0(input), size1, dtype:ctx.DType(input), lod:linearLod, autoGenMips:!lazyMips);
 		var mat = ctx.Operator(kernels["Linear"]);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
 		SetTensor(mat, "_Weight", weight);
-		if(quants.TryGetValue(weight, out var quant))
-			SetTensorQuant(mat, "_Quant", quant);
+		if(quantizers.TryGetValue(weight, out var quantizer))
+			SetTensorQuant(mat, "_Quant", quantizer);
 		if(weightT)
 			EnableOption(mat, Keyword.WEIGHT_TRANSPOSED);
 		if(bias)
 			SetTensor(mat, "_Bias", bias);
 		ctx.Blit(output, mat);
+		if(permuter && !weightT)
+			ctx.Release(input);
 		return output;
 	}
 	Texture _Reduce(Texture input, Keyword func, int groups=1,
