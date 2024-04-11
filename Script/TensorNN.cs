@@ -169,14 +169,14 @@ public class TensorNN {
 		return output;
 	}
 	public Texture Copy(RenderTexture output, Texture input, Vector2Int size,
-			Vector2Int outputOffset=default, Vector2Int inputOffset=default) {
+			Vector2Int outputOffset=default, Vector2Int inputOffset=default, Vector2Int? inputStep=null) {
 		if(object.ReferenceEquals(output, null))
 			output = ctx.GPUTensor(size.x, size.y, dtype:ctx.DType(input));
 		var mat = ctx.Operator(kernels["Function"]);
 		SetTensor(mat, "_Output", output, size);
 		SetTensor(mat, "_Input",  input, size);
-		mat.SetVector("_OutputOff", new Vector4(outputOffset.x, outputOffset.y, 0, 0));
-		mat.SetVector("_InputOff",  new Vector4(inputOffset.x, inputOffset.y, 0, 0));
+		mat.SetVector("_OutputOff", new Vector4(outputOffset.x, outputOffset.y, 1, 1));
+		mat.SetVector("_InputOff",  new Vector4(inputOffset.x, inputOffset.y, inputStep?.x??1, inputStep?.y??1));
 		ctx.Blit(output, mat);
 		return output;
 	}
@@ -250,10 +250,14 @@ public class TensorNN {
 		FUNC_NORMALIZE_L1,
 		FUNC_GUMBEL,
 		FUNC_ROTARY,
-		FUNC_RELU,
+
 		FUNC_GELU,
 		FUNC_GELU_NEW,
+		FUNC_GELU_PYTORCH_TANH = FUNC_GELU_NEW,
+		FUNC_RELU,
+		FUNC_SIGMOID,
 		FUNC_SILU,
+		FUNC_TANH,
 	}
 }
 }

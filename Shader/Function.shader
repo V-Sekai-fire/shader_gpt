@@ -14,8 +14,8 @@ Properties {
 	[NoScaleOffset]  _MulTex   ("_MulTex",    2D) = "black" {}
 	[NoScaleOffset]  _AddTex   ("_AddTex",    2D) = "black" {}
 	[NoScaleOffset]  _RotaryTex("_RotaryTex", 2D) = "black" {}
-	_OutputOff("_OutputOff", Vector) = (0, 0, 0, 0)
-	_InputOff ("_InputOff",  Vector) = (0, 0, 0, 0)
+	_OutputOff("_OutputOff", Vector) = (0, 0, 1, 1)
+	_InputOff ("_InputOff",  Vector) = (0, 0, 1, 1)
 	_Window   ("_Window",    Vector) = (0, 1048576, 0, 0)
 	_Default  ("_Default",   Vector) = (0, 0, 0, 0)
 	_Scale    ("_Scale", Float) = 1
@@ -36,8 +36,8 @@ Texture2D<float4> _OffsetTex; uint4 _OffsetDim;
 Texture2D<float4> _MulTex;    uint4 _MulDim;
 Texture2D<float4> _AddTex;    uint4 _AddDim;
 Texture2D<float4> _RotaryTex; uint4 _RotaryDim;
-uniform uint2 _OutputOff;
-uniform uint2 _InputOff;
+uniform int2 _OutputOff;
+uniform int4 _InputOff;
 uniform float4 _Window;
 uniform float4 _Default;
 uniform float _Eps;
@@ -48,7 +48,7 @@ uniform float4 _Add;
 float4 main(uint2 pos) {
 	// output[i,j] = act(reduce(input[i,j]) * weight + bias)
 
-	float4 X = LOAD_TENSOR(_Input, _InputOff+pos);
+	float4 X = LOAD_TENSOR(_Input, _InputOff.xy+_InputOff.zw*pos);
 	float4 R = LOAD_TENSOR(_Reduce, pos.xy*_ReduceDim.xy/_InputDim.xy);
 	float4 O = X;
 	int4 index = pos.y%(_InputDim.y/_ReduceDim.y)*4 + uint4(0,1,2,3);
@@ -68,13 +68,13 @@ float4 main(uint2 pos) {
 		uint dim = _RotaryDim.y/2;
 		if(j < dim) {
 			float4 reX = X;
-			float4 imX = LOAD_TENSOR(_Input, _InputOff+pos+uint2(0,dim));
+			float4 imX = LOAD_TENSOR(_Input, _InputOff.xy+_InputOff.zw*(pos+uint2(0,dim)));
 			float4 reY = LOAD_TENSOR(_Rotary, uint2(pos.x, j));
 			float4 imY = LOAD_TENSOR(_Rotary, uint2(pos.x, j+dim));
 			O = reX*reY - imX*imY; // real part
 		} else if(j < dim*2) {
 			float4 imX = X;
-			float4 reX = LOAD_TENSOR(_Input, _InputOff+pos-uint2(0,dim));
+			float4 reX = LOAD_TENSOR(_Input, _InputOff.xy+_InputOff.zw*(pos-uint2(0,dim)));
 			float4 imY = LOAD_TENSOR(_Rotary, uint2(pos.x, j));
 			float4 reY = LOAD_TENSOR(_Rotary, uint2(pos.x, j-dim));
 			O = reX*imY + imX*reY; // imaginary part
@@ -89,14 +89,18 @@ float4 main(uint2 pos) {
 	if(_AddDim.x)
 		O += LOAD_TENSOR(_Add, pos.xy*_AddDim.xy/_InputDim.xy);
 
-	#if defined(FUNC_RELU)
-		O = max(0,O) + _Eps * min(0,O); // leaky relu
-	#elif defined(FUNC_GELU)
+	#if defined(FUNC_GELU)
 		O = gelu(O);
 	#elif defined(FUNC_GELU_NEW)
-		O = gelu_new(O);
+		O = gelu_tanh(O);
+	#elif defined(FUNC_RELU)
+		O = max(0,O) + _Eps * min(0,O); // leaky relu
+	#elif defined(FUNC_SIGMOID)
+		O = sigmoid(O);
 	#elif defined(FUNC_SILU)
 		O = silu(O);
+	#elif defined(FUNC_TANH)
+		O = tanh(O);
 	#endif
 	return O;
 }
@@ -114,7 +118,8 @@ HLSLPROGRAM
 #pragma target 5.0
 #pragma vertex vertQuad
 #pragma fragment frag
-#pragma shader_feature _ FUNC_GROUPNORM FUNC_SOFTMAX_LINF FUNC_NORMALIZE_L1 FUNC_RELU FUNC_GELU FUNC_GELU_NEW FUNC_SILU FUNC_GUMBEL FUNC_ROTARY
+#pragma shader_feature _ FUNC_GROUPNORM FUNC_SOFTMAX_LINF FUNC_NORMALIZE_L1 FUNC_GUMBEL FUNC_ROTARY\
+	FUNC_GELU FUNC_GELU_NEW FUNC_RELU FUNC_SIGMOID FUNC_SILU FUNC_TANH
 ENDHLSL
 	}
 }

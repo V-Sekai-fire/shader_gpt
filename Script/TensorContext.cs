@@ -131,14 +131,16 @@ public class TensorContext {
 		Release(clone);
 		return output;
 	}
-	public void DebugTensor(Texture2D input) {
-		var data = GetData(input);
-		DebugTensor(data, Size0(input), Size1(input)*4);
-	}
-	public void DebugTensor(RenderTexture input) {
-		var data = new NativeArray<float>(GetData(input), Allocator.Temp);
-		DebugTensor(data, Size0(input), Size1(input)*4);
-		data.Dispose();
+	public void DebugTensor(Texture input) {
+		if(input is RenderTexture rt) {
+			var data = new NativeArray<float>(GetData(rt), Allocator.Temp);
+			DebugTensor(data, Size0(rt), Size1(rt)*4);
+			data.Dispose();
+		} else if(input is Texture2D tex) {
+			var data = GetData(tex);
+			DebugTensor(data, Size0(tex), Size1(tex)*4);
+		} else
+			Debug.LogError($"unsupported texture type {input}");
 	}
 	void DebugTensor(NativeArray<float> data, int row, int col) {
 		Debug.Log($"shape: {row}, {col}");

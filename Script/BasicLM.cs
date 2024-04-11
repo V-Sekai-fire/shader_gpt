@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.Rendering;
 using System.Collections.Generic;
 using System.Linq;
 #if UNITY_EDITOR
@@ -7,7 +6,7 @@ using UnityEditor;
 #endif
 
 namespace ShaderGPT {
-public abstract class GPTBase : MonoBehaviour {
+public class BasicLM : MonoBehaviour {
 	[Header("Model")]
 	public Shader[] shaders;
 	public Texture[] textures;
@@ -35,12 +34,11 @@ public abstract class GPTBase : MonoBehaviour {
 		get => nn.ctx;
 		set { nn.ctx = value; }
 	}
+	private ModelForCausalLM model;
+	private Config config;
+	private Tokenizer tokenizer;
 
-	private Config _config;
-	protected Tokenizer tokenizer;
-	protected Dictionary<string, Texture> parameters;
-	protected List<int> tokens;
-
+	private List<int> tokens;
 	private float nextTime;
 	private int positionId;
 	
@@ -49,15 +47,9 @@ public abstract class GPTBase : MonoBehaviour {
 			ctx = new TensorContext(),
 			kernels = shaders.ToDictionary(x => x.name.Split('/')[1], x => x),
 		};
-		_config = JsonUtility.FromJson<Config>(configJson.text);
+		model = ModelForCausalLM.FromPretrained(nn, configJson, textures);
+		config = JsonUtility.FromJson<Config>(configJson.text);
 		tokenizer = JsonUtility.FromJson<Tokenizer>(tokenizerJson.text);
-		parameters = textures.ToDictionary(x => x.name, x => x);
-		foreach(var pair in parameters) {
-			if(parameters.TryGetValue(pair.Key+".q8", out var quantizer))
-				nn.quantizers[pair.Value] = quantizer;
-			if(parameters.TryGetValue(pair.Key+".q8.idx", out var permuter))
-				nn.permuters[pair.Value] = permuter;
-		}
 		var testcase = testcaseJson ? JsonUtility.FromJson<Testcase>(testcaseJson.text) : null;
 
 		if(task == Task.Run) {
@@ -109,9 +101,40 @@ public abstract class GPTBase : MonoBehaviour {
 				Debug.Log(tokenizer.vocab[token]);
 		}
 	}
-	public abstract int Run(int positionId);
-	public abstract void Test(Testcase testcase);
-	public abstract void Bake();
+	static Dictionary<System.Type, (float,float)> testErrMap = new Dictionary<System.Type, (float,float)>() {
+		{typeof(Models.GPT2), (8e-5f, 2e-4f)},
+		{typeof(Models.GPTNeo), (5e-5f, 2e-4f)},
+		{typeof(Models.GPTNeoX), (4e-3f, 24e-3f)},
+		{typeof(Models.Llama), (4e-5f, 4e-5f)},
+		{typeof(Models.Phi), (1e-5f, 5e-5f)},
+	};
+	public int Run(int positionId) {
+		var input = InputTensor(tokens, positionId);
+		var (hidden_states, logits) = model.ForCausalLM(input);
+		ctx.Release(hidden_states);
+		var next_tokens = Generate(input, ref logits);
+		ctx.Release(input);
+		var data = BatchRelease(ctx.GetData((RenderTexture)MarkRelease(next_tokens)));
+		return Mathf.RoundToInt(data[0]);
+	}
+	public void Test(Testcase testcase) {
+		var (hidden_states_err, logits_err) = testErrMap[model.GetType()];
+		var input = InputTensor(testcase.input_ids);
+		var (hidden_states, logits) = model.ForCausalLM(input);
+		ctx.Release(input);
+		AssertData((RenderTexture)hidden_states, -1, testcase.hidden_states, hidden_states_err);
+		AssertData((RenderTexture)logits, -1, testcase.logits, logits_err);
+		ctx.Release(hidden_states);
+		ctx.Release(logits);
+	}
+	public void Bake() {
+		var input = ctx.PersistentGPUTensor("input", 1, 1);
+		var (hidden_states, logits) = model.ForCausalLM(input);
+		ctx.Release(hidden_states);
+		var next_tokens = Generate(input, ref logits);
+		nn.Copy(input, next_tokens, ctx.Size(input));
+		ctx.Release(next_tokens);
+	}
 	
 	protected Texture InputTensor(IList<int> input_ids, int position_id=0) {
 		var n = input_ids.Count-position_id;
@@ -142,7 +165,7 @@ public abstract class GPTBase : MonoBehaviour {
 				size:new Vector2Int(1, ctx.Size1(scores)), inputOffset:new Vector2Int(ctx.Size0(scores)-1, 0)));
 		RepetitionPenaltyLogitsProcessor(inputs, ref scores, repetitionPenalty, input);
 		var gumbel = BatchRelease(nn.Gumbel(MarkRelease(scores), temperature));
-		return BatchRelease(nn.ArgMax(MarkRelease(gumbel), window:new Vector2(0, _config.vocab_size)));
+		return BatchRelease(nn.ArgMax(MarkRelease(gumbel), window:new Vector2(0, config.vocab_size)));
 	}
 
 	// utilities
@@ -177,11 +200,6 @@ public abstract class GPTBase : MonoBehaviour {
 		Debug.Assert(Mathf.Abs(errorLi) < eps);
 		if(Mathf.Abs(errorLi) >= eps)
 			ctx.DebugTensor(rt);
-	}
-	protected void FixSize0(string name, int size0) {
-		ctx.FixSize0(parameters[name], size0);
-		if(parameters.TryGetValue($"{name}.q8", out var quantTex))
-			ctx.FixSize0(quantTex, (size0+3)/4);
 	}
 
 	[System.Serializable]

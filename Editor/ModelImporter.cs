@@ -57,29 +57,13 @@ public class ModelImporter {
 		}
 	}
 	
-	static GPTBase ImportModel(string folder) {
+	static MonoBehaviour ImportModel(string folder) {
 		var configJson = AssetDatabase.LoadAssetAtPath<TextAsset>(Path.Join(folder, "config.json"));
 		var tokenizerJson = AssetDatabase.LoadAssetAtPath<TextAsset>(Path.Join(folder, "tokenizer.json"));
 		var testcaseJson = AssetDatabase.LoadAssetAtPath<TextAsset>(Path.Join(folder, "testcase.json"));
 		var config = JsonUtility.FromJson<Config>(configJson.text);
 		var model_type = config.model_type;
 		Debug.Log($"{folder} : {model_type}");
-
-		var type = default(System.Type);
-		if(model_type == "gpt2")
-			type = typeof(GPT2);
-		else if(model_type == "gpt_neo")
-			type = typeof(GPTNeo);
-		else if(model_type == "gpt_neox")
-			type = typeof(GPTNeoX);
-		else if(model_type == "phi")
-			type = typeof(Phi);
-		else if(model_type == "llama" || model_type == "mistral" || model_type == "qwen2")
-			type = typeof(Llama);
-		else {
-			Debug.LogError($"unsupported architecture {model_type}");
-			return null;
-		}
 
 		var texturePaths = GetTexturePaths(folder);
 		AssetDatabase.StartAssetEditing();
@@ -90,8 +74,8 @@ public class ModelImporter {
 			AssetDatabase.StopAssetEditing();
 		}
 		
-		var go = new GameObject(Path.GetFileName(folder), type);
-		var gpt = go.GetComponent<GPTBase>();
+		var go = new GameObject(Path.GetFileName(folder), typeof(BasicLM));
+		var gpt = go.GetComponent<BasicLM>();
 		gpt.shaders = GetShaders();
 		gpt.textures = texturePaths.Select(path => AssetDatabase.LoadAssetAtPath<Texture>(path)).ToArray();
 		gpt.configJson = configJson;
