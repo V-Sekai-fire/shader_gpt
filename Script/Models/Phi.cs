@@ -44,15 +44,18 @@ public class Phi : ModelForCausalLM {
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:config.num_attention_heads, weightHeads:config.num_key_value_heads, weightT:true));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.dense.weight"], state_dict[$"{path}.dense.bias"]));
 	}
+	Texture PhiMLP(Texture hidden_states, string path) {
+		hidden_states = BatchRelease(nn.Linear(hidden_states, state_dict[$"{path}.fc1.weight"], state_dict[$"{path}.fc1.bias"]));
+		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), func:TensorNN.ActFn(config.hidden_act)));
+		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.fc2.weight"], state_dict[$"{path}.fc2.bias"]));
+		return hidden_states;
+	}
 	void PhiDecoderLayer(ref Texture hidden_states, Texture input_ids, string path) {
 		var attn_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.input_layernorm.weight"], state_dict[$"{path}.input_layernorm.bias"], config.layer_norm_eps);
-		var mlp_states = BatchRelease(nn.Linear(attn_states, state_dict[$"{path}.mlp.fc1.weight"], state_dict[$"{path}.mlp.fc1.bias"]));
-		mlp_states = BatchRelease(nn.Fusion(MarkRelease(mlp_states), func:TensorNN.ActFn(config.hidden_act)));
-		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), state_dict[$"{path}.mlp.fc2.weight"], state_dict[$"{path}.mlp.fc2.bias"]));
-
+		var mlp_states = PhiMLP(attn_states, path:$"{path}.mlp");
 		PhiAttention(ref attn_states, input_ids, path:$"{path}.self_attn");
-		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(attn_states)));
-		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(mlp_states)));
+		var sum = BatchRelease(nn.Fusion(MarkRelease(attn_states), add:MarkRelease(mlp_states)));
+		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(sum)));
 	}
 	Texture PhiModel(Texture input_ids, string path) {
 		var hidden_states = nn.IndexSelect(state_dict[$"{path}.embed_tokens.weight.T"], (input_ids, 0), inputT:true);

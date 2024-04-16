@@ -50,17 +50,19 @@ public class Llama : ModelForCausalLM {
 		state_dict.TryGetValue($"{path}.o_proj.bias", out var o_bias);
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.o_proj.weight"], o_bias));
 	}
+	void LlamaMLP(ref Texture hidden_states, string path) {
+		var gate = BatchRelease(nn.Linear(hidden_states, state_dict[$"{path}.gate_proj.weight"]));
+		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.up_proj.weight"]));
+		gate = BatchRelease(nn.Fusion(MarkRelease(gate), func:TensorNN.ActFn(config.hidden_act)));
+		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), mul:MarkRelease(gate)));
+		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.down_proj.weight"]));
+	}
 	void LlamaDecoderLayer(ref Texture hidden_states, Texture input_ids, string path) {
 		var attn_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.input_layernorm.weight"], null, config.rms_norm_eps, rmsNorm:true);
 		LlamaAttention(ref attn_states, input_ids, path:$"{path}.self_attn");
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(attn_states)));
-
 		var mlp_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.post_attention_layernorm.weight"], null, config.rms_norm_eps, rmsNorm:true);
-		var gate = BatchRelease(nn.Linear(mlp_states, state_dict[$"{path}.mlp.gate_proj.weight"]));
-		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), state_dict[$"{path}.mlp.up_proj.weight"]));
-		gate = BatchRelease(nn.Fusion(MarkRelease(gate), func:TensorNN.ActFn(config.hidden_act)));
-		mlp_states = BatchRelease(nn.Fusion(MarkRelease(mlp_states), mul:MarkRelease(gate)));
-		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), state_dict[$"{path}.mlp.down_proj.weight"]));
+		LlamaMLP(ref mlp_states, path:$"{path}.mlp");
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(mlp_states)));
 	}
 	Texture LlamaModel(Texture input_ids, string path) {

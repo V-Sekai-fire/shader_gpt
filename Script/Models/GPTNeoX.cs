@@ -9,6 +9,7 @@ public class GPTNeoXConfig {
 	public float layer_norm_eps;
 	public string hidden_act;
 	public int max_position_embeddings;
+	public bool use_parallel_residual;
 }
 public class GPTNeoX : ModelForCausalLM {
 	public GPTNeoXConfig config;
@@ -43,17 +44,19 @@ public class GPTNeoX : ModelForCausalLM {
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:config.num_attention_heads, weightT:true));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.dense.weight"], state_dict[$"{path}.dense.bias"]));
 	}
+	void GPTNeoXMLP(ref Texture hidden_states, string path) {
+		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.dense_h_to_4h.weight"], state_dict[$"{path}.dense_h_to_4h.bias"]));
+		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), func:TensorNN.ActFn(config.hidden_act)));
+		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.dense_4h_to_h.weight"], state_dict[$"{path}.dense_4h_to_h.bias"]));
+	}
 	void GPTNeoXLayer(ref Texture hidden_states, Texture input_ids, string path) {
+		Debug.Assert(config.use_parallel_residual, "only use_parallel_residual=true is implemented");
 		var attn_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.input_layernorm.weight"], state_dict[$"{path}.input_layernorm.bias"], config.layer_norm_eps);
 		GPTNeoXAttention(ref attn_states, input_ids, path:$"{path}.attention");
-
 		var mlp_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.post_attention_layernorm.weight"], state_dict[$"{path}.post_attention_layernorm.bias"], config.layer_norm_eps);
-		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), state_dict[$"{path}.mlp.dense_h_to_4h.weight"], state_dict[$"{path}.mlp.dense_h_to_4h.bias"]));
-		mlp_states = BatchRelease(nn.Fusion(MarkRelease(mlp_states), func:TensorNN.ActFn(config.hidden_act)));
-		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), state_dict[$"{path}.mlp.dense_4h_to_h.weight"], state_dict[$"{path}.mlp.dense_4h_to_h.bias"]));
-
-		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(attn_states)));
-		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(mlp_states)));
+		GPTNeoXMLP(ref mlp_states, path:$"{path}.mlp");
+		var sum = BatchRelease(nn.Fusion(MarkRelease(attn_states), add:MarkRelease(mlp_states)));
+		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(sum)));
 	}
 	Texture GPTNeoXModel(Texture input_ids, string path) {
 		var hidden_states = nn.IndexSelect(state_dict[$"{path}.embed_in.weight.T"], (input_ids, 0), inputT:true);

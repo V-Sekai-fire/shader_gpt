@@ -27,6 +27,7 @@ public class TensorContext {
 		tex.Apply(updateMipmaps:false, makeNoLongerReadable:false);
 	}
 	static Texture Copy(Texture2D output, RenderTexture input, int lod) {
+		var active = RenderTexture.active;
 		if(lod != 0) {
 			// copy last mip level for ReadPixels
 			var desc = input.descriptor;
@@ -34,14 +35,14 @@ public class TensorContext {
 			desc.height >>= lod;
 			desc.useMipMap = false;
 			var clone = RenderTexture.GetTemporary(desc);
+			RenderTexture.active = clone; // must init before copy, but clone.Create() doesn't work somehow
 			Graphics.CopyTexture(input, 0, lod, clone, 0, 0);
-			Copy(output, clone, 0);
-			RenderTexture.ReleaseTemporary(clone);
-			return output;
+			input = clone;
 		}
-		var active = RenderTexture.active;
 		RenderTexture.active = input;
 		output.ReadPixels(new Rect(0, 0, output.width, output.height), 0, 0);
+		if(lod != 0)
+			RenderTexture.ReleaseTemporary(input);
 		RenderTexture.active = active;
 		return output;
 	}

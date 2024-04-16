@@ -28,11 +28,11 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 	// output[i,h*J+j][jj] += input[i,h*K+k][kk] * (transpose ? weight[k*4+kk,h/D*J+j][jj] : weight[j*4+jj,h/D*K+k][kk])
 
 	#ifdef WEIGHT_TRANSPOSED
-		uint H = _InputDim.y*4  / _WeightDim.x;
-		uint D = _OutputDim.y   / _WeightDim.y;
+		uint H = _InputDim.y  / ((_WeightDim.x+3)/4);
+		uint D = _OutputDim.y / _WeightDim.y;
 	#else
-		uint H = _OutputDim.y*4 / _WeightDim.x;
-		uint D = _InputDim.y    / _WeightDim.y;
+		uint H = _OutputDim.y / ((_WeightDim.x+3)/4);
+		uint D = _InputDim.y  / _WeightDim.y;
 	#endif
 	uint J = _OutputDim.y / H;
 	uint K = _InputDim.y  / H;
@@ -43,6 +43,7 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 	float4 B = LOAD_TENSOR(_Bias, uint2(0, pos.y)); // load here for less divergence
 	for(uint k=threadId; k<K; k+=groupSize) {
 		float4 X = LOAD_TENSOR(_Input, uint2(pos.x, h*K+k));
+		// for performance reason, when _WeightDim.x%4 != 0, out-of-bound read on _WeightTex is not handled
 		#ifdef WEIGHT_TRANSPOSED
 			float4 offset, scale = dequantizeScale(LOAD_TENSOR(_Quant, uint2(k, (h/D*J+j)/S)), offset);
 			O += mul(scale * X, float4x4(

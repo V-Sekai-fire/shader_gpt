@@ -35,9 +35,11 @@ float4 main(uint2 pos) {
 	float4 offset, scale = dequantizeScale(LOAD_TENSOR(_Quant, uint2(pos.y, idx/4/S)), offset);
 	[unroll] for(int c=0; c<4; c++)
 		O[c] = dequantizeWeight(LOAD_TENSOR(_Input, uint2(pos.y*4+c, idx/4)), offset[c])[idx%4] * scale[c];
+	O = idx/4 < _InputDim.y ? O : 0;
 #else
 	float4 offset, scale = dequantizeScale(LOAD_TENSOR(_Quant, uint2(idx/4, pos.y/S)), offset);
 	O = dequantizeWeight(LOAD_TENSOR(_Input, uint2(idx, pos.y)), offset[idx%4]) * scale[idx%4];
+	O = idx < _InputDim.x ? O : 0;
 #endif
 #else
 	uint4 idx4 = LOAD_TENSOR(_Index, uint2(_IndexChan, pos.y));
@@ -46,6 +48,7 @@ float4 main(uint2 pos) {
 		float4 offset, scale = dequantizeScale(LOAD_TENSOR(_Quant, uint2(pos.x/4, idx/4/S)), offset);
 		O[c] = dequantizeWeight(LOAD_TENSOR(_Input, uint2(pos.x, idx/4)), offset[pos.x%4])[idx%4] * scale[pos.x%4];
 	}
+	O = idx4/4 < _InputDim.y ? O : 0;
 #endif
 	return O;
 }

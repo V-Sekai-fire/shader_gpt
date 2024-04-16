@@ -21,8 +21,8 @@ uint4 _OutputDim;
 Texture2D<float4> _InputTex; uint4 _InputDim;
 Texture2D<float4> _IndexTex; uint4 _IndexDim;
 uniform float4 _Input;
-uniform uint2  _IndexOff;
 uniform uint _IndexChan;
+uniform uint _BatchOff;
 uniform uint _ColorMask;
 
 struct GeomInput {};
@@ -40,20 +40,21 @@ void geom(triangle GeomInput input[3], inout TriangleStream<GeomOutput> stream, 
 		uint src = (primitiveId * instanceCount + instanceId) * geometryCount + i;
 		if(src >= batchSize)
 			return;
+		src += _BatchOff;
 		uint payload = src;
 		float4 aabb = float4(0,0,1,1);
 #ifdef AXIS_LAST
-		if(any(_IndexOff+uint2(_IndexChan, src/4) >= _IndexDim.xy))
+		if(src/4 >= _IndexDim.y)
 			return;
-		uint dst = LOAD_TENSOR(_Index, _IndexOff+uint2(_IndexChan, src/4))[src%4];
+		uint dst = LOAD_TENSOR(_Index, uint2(_IndexChan, src/4))[src%4];
 		if(_ColorMask != (1<<(3-dst%4))) // RGBA
 			continue;
 		aabb.xz = (float2(0,1) + (dst/4 >> _OutputDim.z)) / (_OutputDim.y>>_OutputDim.z);
 		payload = (payload<<_OutputDim.z) | (dst/4 & ((1<<_OutputDim.z)-1));
 #else
-		if(any(_IndexOff+uint2(src, _IndexChan/4) >= _IndexDim.xy))
+		if(src >= _IndexDim.x)
 			return;
-		uint dst = LOAD_TENSOR(_Index, _IndexOff+uint2(src, _IndexChan/4))[_IndexChan%4];
+		uint dst = LOAD_TENSOR(_Index, uint2(src, _IndexChan/4))[_IndexChan%4];
 		aabb.yw = (float2(0,1) + dst) / _OutputDim.x;
 #endif
 		aabb = aabb*2-1;
@@ -75,10 +76,10 @@ float4 main(uint2 pos, uint payload) {
 	if((pos.y-payload) & ((1<<_OutputDim.z)-1))
 		discard;
 	uint src = payload>>_OutputDim.z;
-	return _InputDim.x ? LOAD_TENSOR(_Input, _IndexOff+uint2(pos.x, src/4))[src%4] : _Input;
+	return _InputDim.x ? LOAD_TENSOR(_Input, uint2(pos.x, src/4))[src%4] : _Input;
 #else
 	uint src = payload;
-	return _InputDim.x ? LOAD_TENSOR(_Input, _IndexOff+uint2(src, pos.y)) : _Input;
+	return _InputDim.x ? LOAD_TENSOR(_Input, uint2(src, pos.y)) : _Input;
 #endif
 }
 float4 frag(float4 screenPos : SV_Position) : SV_Target {

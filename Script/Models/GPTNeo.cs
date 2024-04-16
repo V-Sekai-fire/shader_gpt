@@ -29,22 +29,24 @@ public class GPTNeo : ModelForCausalLM {
 		BatchRelease(nn.IndexCopy(keys,   (input_ids, 1), MarkRelease(key)));
 		BatchRelease(nn.IndexCopy(values, (input_ids, 1), MarkRelease(value)));
 
-		var window_size = layer_id%2==1 ? config.window_size : config.max_position_embeddings;
+		var window_size = layer_id%2 == 1 ? config.window_size : config.max_position_embeddings;
 		var attn_scores = BatchRelease(nn.Linear(MarkRelease(query), keys, heads:config.num_heads));
 		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores),
 			groups:config.num_heads, window:new Vector4(1-window_size, 1, 0, 1), offset:input_ids));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:config.num_heads, weightT:true));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.out_proj.weight"], state_dict[$"{path}.out_proj.bias"]));
 	}
+	void GPTNeoMLP(ref Texture hidden_states, string path) {
+		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.c_fc.weight"], state_dict[$"{path}.c_fc.bias"]));
+		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), func:TensorNN.ActFn(config.activation_function)));
+		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.c_proj.weight"], state_dict[$"{path}.c_proj.bias"]));
+	}
 	void GPTNeoBlock(ref Texture hidden_states, Texture input_ids, string path, int layer_id) {
 		var attn_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.ln_1.weight"], state_dict[$"{path}.ln_1.bias"], config.layer_norm_epsilon);
 		GPTNeoSelfAttention(ref attn_states, input_ids, path:$"{path}.attn.attention", layer_id:layer_id);
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(attn_states)));
-
 		var mlp_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.ln_2.weight"], state_dict[$"{path}.ln_2.bias"], config.layer_norm_epsilon);
-		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), state_dict[$"{path}.mlp.c_fc.weight"], state_dict[$"{path}.mlp.c_fc.bias"]));
-		mlp_states = BatchRelease(nn.Fusion(MarkRelease(mlp_states), func:TensorNN.ActFn(config.activation_function)));
-		mlp_states = BatchRelease(nn.Linear(MarkRelease(mlp_states), state_dict[$"{path}.mlp.c_proj.weight"], state_dict[$"{path}.mlp.c_proj.bias"]));
+		GPTNeoMLP(ref mlp_states, path:$"{path}.mlp");
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(mlp_states)));
 	}
 	Texture GPTNeoModel(Texture input_ids, string path) {

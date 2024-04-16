@@ -49,9 +49,9 @@ float4 main(uint2 pos) {
 	// output[i,j] = act(reduce(input[i,j]) * weight + bias)
 
 	float4 X = LOAD_TENSOR(_Input, _InputOff.xy+_InputOff.zw*pos);
-	float4 R = LOAD_TENSOR(_Reduce, pos.xy*_ReduceDim.xy/_InputDim.xy);
+	float4 R = LOAD_TENSOR(_Reduce, pos.xy/(_OutputDim.xy/_ReduceDim.xy));
 	float4 O = X;
-	int4 index = pos.y%(_InputDim.y/_ReduceDim.y)*4 + uint4(0,1,2,3);
+	int4 index = pos.y%(_OutputDim.y/_ReduceDim.y)*4 + uint4(0,1,2,3);
 	int2 range = _Window.xy + dot(_Window.zw, LOAD_TENSOR(_Offset, uint2(pos.x, 0)).xy);
 	bool4 mask = range.x <= index && index < range.y;
 	#if defined(FUNC_GROUPNORM)
@@ -64,7 +64,7 @@ float4 main(uint2 pos) {
 		uint4 seed = uint4(pos.xy, asuint(_Time.y), asuint(_SinTime.w));
 		O = -log(-log((pcg4d(seed)>>9u)/8388608.0 + 0.5/8388608.0)); // be careful to avoid input 0,1
 	#elif defined(FUNC_ROTARY)
-		uint j = pos.y%(_InputDim.y/_ReduceDim.y);
+		uint j = pos.y%(_OutputDim.y/_ReduceDim.y);
 		uint dim = _RotaryDim.y/2;
 		if(j < dim) {
 			float4 reX = X;
@@ -84,10 +84,10 @@ float4 main(uint2 pos) {
 	O = mask ? O : _Default;
 	O *= _Mul;
 	if(_MulDim.x)
-		O *= LOAD_TENSOR(_Mul, pos.xy*_MulDim.xy/_InputDim.xy);
+		O *= LOAD_TENSOR(_Mul, pos.xy/(_OutputDim.xy/_MulDim.xy));
 	O += _Add;
 	if(_AddDim.x)
-		O += LOAD_TENSOR(_Add, pos.xy*_AddDim.xy/_InputDim.xy);
+		O += LOAD_TENSOR(_Add, pos.xy/(_OutputDim.xy/_AddDim.xy));
 
 	#if defined(FUNC_GELU)
 		O = gelu(O);

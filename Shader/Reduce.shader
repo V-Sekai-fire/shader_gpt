@@ -50,7 +50,7 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 	#elif defined(REDUCE_MINMAX)
 		float4 O = float4(+oo, -oo, 0, 0);
 	#endif
-	K = min(K, uint(max(0, int(_InputDim.y-jK)))); // prevent out-of-bound read of _InputTex
+	K = min(K, uint(max(0, int(_InputDim.y-jK)))); // handle out-of-bound read on _InputTex
 	for(uint k=threadId; k<K; k+=groupSize) {
 		float4 X = LOAD_TENSOR(_Input, uint2(pos.x, jK+k));
 		#if !defined(INPUT_REDUCED)

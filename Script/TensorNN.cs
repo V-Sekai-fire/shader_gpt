@@ -13,9 +13,9 @@ public class TensorNN {
 	public int reduceSplit = 64;
 
 	public Texture IndexSelect(Texture input, (Texture tex, int chan) index, bool inputT=false, bool axis1=false) {
-		var output = axis1
-			? ctx.GPUTensor(inputT ? (ctx.Size1(input)+3)/4 : ctx.Size0(input), index.tex ? ctx.Size1(index.tex) : index.chan)
-			: ctx.GPUTensor(index.tex ? ctx.Size0(index.tex) : index.chan, inputT ? (ctx.Size0(input)+3)/4 : ctx.Size1(input));
+		var size0 = !axis1 ? (index.tex ? ctx.Size0(index.tex) : index.chan) : (inputT ? (ctx.Size1(input)+3)/4 : ctx.Size0(input));
+		var size1 =  axis1 ? (index.tex ? ctx.Size1(index.tex) : index.chan) : (inputT ? (ctx.Size0(input)+3)/4 : ctx.Size1(input));
+		var output = ctx.GPUTensor(size0, size1, dtype:ctx.DType(input));
 		var mat = ctx.Operator(kernels["Gather"]);
 		SetTensor(mat, "_Output", output);
 		if(axis1)
@@ -47,7 +47,7 @@ public class TensorNN {
 			mat.SetVector("_Input", fill * Vector4.one);
 			if(index.tex)
 				SetTensor(mat, "_Index", index.tex);
-			mat.SetVector("_IndexOff", axis1 ? new Vector2(0,off) : new Vector2(off,0));
+			mat.SetInt("_BatchOff", off);
 			mat.SetInt("_IndexChan", index.chan);
 			mat.SetInt("_ColorMask", mask);
 			ctx.Blit(output, mat);
@@ -61,12 +61,12 @@ public class TensorNN {
 			Debug.Assert(heads == 1 && weightHeads == 1 && !weightT);
 		if(permuter && !weightT)
 			input = IndexSelect(input, (permuter, 0), axis1:true);
-		Debug.Assert(ctx.Size1(input)%heads == 0 && ctx.Size1(weight)%weightHeads == 0 && ctx.Size0(weight)%4 == 0 && heads%weightHeads == 0);
-		Debug.Assert(ctx.Size1(input)/heads == (weightT ? ctx.Size0(weight)/4 : ctx.Size1(weight)/weightHeads));
-		var size1 = (weightT ? ctx.Size1(weight)/weightHeads : ctx.Size0(weight)/4) * heads;
-		Debug.Assert(!bias || (ctx.Size0(bias) == 1 && ctx.Size1(bias) == size1));
-		var lazyMips = ctx.Lod(input) == 0 && ctx.Lod(weight) == 0; // when adjacent operator is independent
-		var output = ctx.GPUTensor(ctx.Size0(input), size1, dtype:ctx.DType(input), lod:linearLod, autoGenMips:!lazyMips);
+		var idim = !weightT ? ctx.Size1(weight)/weightHeads : (ctx.Size0(weight)+3)/4;
+		var odim =  weightT ? ctx.Size1(weight)/weightHeads : (ctx.Size0(weight)+3)/4;
+		Debug.Assert(ctx.Size1(input) == heads*idim && ctx.Size1(weight)%weightHeads == 0 && heads%weightHeads == 0);
+		Debug.Assert(!bias || (ctx.Size0(bias) == 1 && ctx.Size1(bias) == heads*odim));
+		var output = ctx.GPUTensor(ctx.Size0(input), heads*odim, dtype:ctx.DType(input),
+			lod:linearLod, autoGenMips:(ctx.Lod(input)+ctx.Lod(weight) > 0)); // resolve mips if any input has mips
 		var mat = ctx.Operator(kernels["Linear"]);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
@@ -253,7 +253,6 @@ public class TensorNN {
 
 		FUNC_GELU,
 		FUNC_GELU_NEW,
-		FUNC_GELU_PYTORCH_TANH = FUNC_GELU_NEW,
 		FUNC_RELU,
 		FUNC_SIGMOID,
 		FUNC_SILU,

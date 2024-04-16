@@ -66,6 +66,7 @@ public class BasicLM : MonoBehaviour {
 			else
 				Debug.Log(text);
 		} else if(task == Task.Test) {
+			Debug.Log($"Testing {this.name} ({model})");
 			Test(testcase);
 			Debug.Assert(ctx.TensorCount() == 0);
 		} else if(task == Task.Bake) {
@@ -104,7 +105,7 @@ public class BasicLM : MonoBehaviour {
 	static Dictionary<System.Type, (float,float)> testErrMap = new Dictionary<System.Type, (float,float)>() {
 		{typeof(Models.GPT2), (8e-5f, 2e-4f)},
 		{typeof(Models.GPTNeo), (5e-5f, 2e-4f)},
-		{typeof(Models.GPTNeoX), (4e-3f, 24e-3f)},
+		{typeof(Models.GPTNeoX), (4e-3f, 6e-3f)},
 		{typeof(Models.Llama), (4e-5f, 4e-5f)},
 		{typeof(Models.Phi), (1e-5f, 5e-5f)},
 	};
