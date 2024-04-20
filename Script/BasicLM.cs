@@ -154,7 +154,7 @@ public class BasicLM : MonoBehaviour {
 			window:new Vector4(-maxLength, ctx.Size0(last_input_ids), 0, 1), offset:last_input_ids));
 		var mask = nn.Fusion(scores, scale:0f);
 		BatchRelease(nn.IndexCopy((RenderTexture)mask, (MarkRelease(inputs_T), 0), null, fill:1f, axis1:true));
-		var penal = nn.Fusion(scores, scale:1f/penalty, func:TensorNN.Keyword.FUNC_RELU, eps:penalty*penalty);
+		var penal = nn.Fusion(scores, func:TensorNN.Keyword.FUNC_RELU, eps:penalty*penalty, scale:1f/penalty);
 		var diff = BatchRelease(nn.Fusion(scores, scale:-1, add:MarkRelease(penal)));
 		scores = BatchRelease(nn.Fusion(MarkRelease(mask), mul:MarkRelease(diff), add:MarkRelease(scores)));
 	}

@@ -82,7 +82,7 @@ public class TensorNN {
 			ctx.Release(input);
 		return output;
 	}
-	Texture _Reduce(Texture input, Keyword func, int groups=1,
+	Texture _Reduce(Texture input, Keyword func, int groups=1, float scale=1f,
 			Vector4? window=null, Texture offset=null, Matrix4x4? linear=null, int indexMod=0) {
 		Debug.Assert(ctx.Size1(input) % groups == 0 || indexMod > 0);
 		var groupSize = ctx.Size1(input) / groups;
@@ -92,7 +92,7 @@ public class TensorNN {
 		else if(indexMod == 0 && groupSize >= reduceSplit) {
 			var size1 = groups << Mathf.CeilToInt(Mathf.Log(groupSize, 2)/2);
 			if(groups == 1 || ctx.Size1(input) % size1 == 0) { // disallow padding if groups > 1
-				var input2 = _Reduce(input, func, groups:size1, window:window, offset:offset, indexMod:groupSize);
+				var input2 = _Reduce(input, func, groups:size1, scale:scale, window:window, offset:offset, indexMod:groupSize);
 				var output2 = _Reduce(input2, func, groups:groups, linear:linear, indexMod:-1);
 				ctx.Release(input2);
 				return output2;
@@ -117,13 +117,14 @@ public class TensorNN {
 			mat.SetVector("_Linear2", linear.Value.GetColumn(2));
 			mat.SetVector("_Linear3", linear.Value.GetColumn(3));
 		}
+		mat.SetFloat("_Scale", scale);
 		ctx.Blit(output, mat);
 		return output;
 	}
 	Texture _Normalize(Texture input, Keyword func, Keyword reduceFunc, int groups=1,
 			Texture mul=null, Texture add=null, float eps=0f, float scale=1f,
 			Vector4? window=null, Texture offset=null, Matrix4x4? linear=null) {
-		var reduce = _Reduce(input, reduceFunc, groups:groups, window:window, offset:offset, linear:linear);
+		var reduce = _Reduce(input, reduceFunc, groups:groups, scale:scale, window:window, offset:offset, linear:linear);
 		var output = ctx.GPUTensor(ctx.Size0(input), ctx.Size1(input), dtype:ctx.DType(input));
 		var mat = ctx.Operator(kernels["Function"]);
 		EnableOption(mat, func);
@@ -196,6 +197,10 @@ public class TensorNN {
 	public Texture Transpose(Texture input, int size0) {
 		return IndexSelect(input, (null, size0), inputT:true);
 	}
+	public Texture Sum(Texture input, Vector4? window=null) {
+		return _Reduce(input, Keyword.REDUCE_SUMPOW, window:window,
+			linear:new Matrix4x4(default, new Vector4(1,0,0,0), default, default));
+	}
 	public Texture ArgMax(Texture input, Vector4? window=null) {
 		return _Reduce(input, Keyword.REDUCE_MINMAX, window:window,
 			linear:new Matrix4x4(default, default, default, new Vector4(1,0,0,0)));
@@ -207,10 +212,7 @@ public class TensorNN {
 			mul:weight, add:bias, eps:eps, linear:Matrix4x4.Scale(new Vector4(1, rmsNorm?0:1, 1, 1)));
 	}
 	public Texture Softmax(Texture input, int groups=1, float scale=1f, Vector4? window=null, Texture offset=null) {
-		var temp = _Normalize(input, Keyword.FUNC_SOFTMAX_LINF, Keyword.REDUCE_MINMAX, groups:groups, scale:scale, window:window, offset:offset);
-		var output = _Normalize(temp, Keyword.FUNC_NORMALIZE_L1, Keyword.REDUCE_SUMPOW, groups:groups);
-		ctx.Release(temp);
-		return output;
+		return _Normalize(input, Keyword.FUNC_SOFTMAX, Keyword.REDUCE_SUMEXP, groups:groups, scale:scale, window:window, offset:offset);
 	}
 	public Texture Gumbel(Texture input, float scale) {
 		return Fusion(input, func:Keyword.FUNC_GUMBEL, scale:scale, add:input);
@@ -244,19 +246,22 @@ public class TensorNN {
 		WEIGHT_QUANTIZED_E8,
 		INPUT_REDUCED,
 		REDUCE_SUMPOW,
+		REDUCE_SUMEXP,
 		REDUCE_MINMAX,
-		FUNC_GROUPNORM,
-		FUNC_SOFTMAX_LINF,
-		FUNC_NORMALIZE_L1,
-		FUNC_GUMBEL,
-		FUNC_ROTARY,
 
+		FUNC_GROUPNORM,
+		FUNC_SOFTMAX,
 		FUNC_GELU,
 		FUNC_GELU_NEW,
 		FUNC_RELU,
 		FUNC_SIGMOID,
 		FUNC_SILU,
 		FUNC_TANH,
+
+		FUNC_EXP,
+		FUNC_GUMBEL,
+		FUNC_NORMAL,
+		FUNC_ROTARY,
 	}
 }
 }

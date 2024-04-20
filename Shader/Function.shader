@@ -46,7 +46,7 @@ uniform float4 _Mul;
 uniform float4 _Add;
 
 float4 main(uint2 pos) {
-	// output[i,j] = act(reduce(input[i,j]) * weight + bias)
+	// output[i,j] = func(input[i,j]) * mul + add
 
 	float4 X = LOAD_TENSOR(_Input, _InputOff.xy+_InputOff.zw*pos);
 	float4 R = LOAD_TENSOR(_Reduce, pos.xy/(_OutputDim.xy/_ReduceDim.xy));
@@ -55,14 +55,46 @@ float4 main(uint2 pos) {
 	int2 range = _Window.xy + dot(_Window.zw, LOAD_TENSOR(_Offset, uint2(pos.x, 0)).xy);
 	bool4 mask = range.x <= index && index < range.y;
 	#if defined(FUNC_GROUPNORM)
-		O = (X*R[0]-R[1]) * rsqrt(_Eps*(R[0]*R[0]) + max(0, R[2]*R[0]-R[1]*R[1])); // R is sum of powers
-	#elif defined(FUNC_NORMALIZE_L1)
-		O = X / R[1]; // R is sum of powers
-	#elif defined(FUNC_SOFTMAX_LINF)
-		O = saturate(exp((X - R.y) * _Scale)); // R is minmax
+		// torch.nn.functional.group_norm
+		O = (X*R[0]-R[1]) * rsqrt(_Eps*(R[0]*R[0]) + max(0, R[2]*R[0]-R[1]*R[1])); // R[n] is sum of n-th powers
+	#elif defined(FUNC_SOFTMAX)
+		// torch.nn.functional.softmax
+		O = saturate(exp(X*_Scale-R[0])/R[1]); // exp(R[0])*R[1] is sum of exps
+
+	#elif defined(FUNC_GELU)
+		// torch.nn.functional.gelu(approximate="none")
+		O = gelu(X);
+	#elif defined(FUNC_GELU_NEW)
+		// torch.nn.functional.gelu(approximate="tanh")
+		O = gelu_tanh(X);
+	#elif defined(FUNC_RELU)
+		// torch.nn.functional.leaky_relu
+		O = max(0,X) + _Eps * min(0,X);
+	#elif defined(FUNC_SIGMOID)
+		// torch.nn.functional.sigmoid
+		O = sigmoid(X);
+	#elif defined(FUNC_SILU)
+		// torch.nn.functional.silu
+		O = silu(X);
+	#elif defined(FUNC_TANH)
+		// torch.nn.functional.tanh
+		O = tanh(X);
+
+	#elif defined(FUNC_EXP)
+		// torch.exp
+		O = exp(X*_Scale);
 	#elif defined(FUNC_GUMBEL)
+		// torch.distributions.gumbel.Gumbel
 		uint4 seed = uint4(pos.xy, asuint(_Time.y), asuint(_SinTime.w));
 		O = -log(-log((pcg4d(seed)>>9u)/8388608.0 + 0.5/8388608.0)); // be careful to avoid input 0,1
+	#elif defined(FUNC_NORMAL)
+		// torch.distributions.normal.Normal
+		uint4 seed = uint4(pos.xy, asuint(_Time.y), asuint(_SinTime.w));
+		uint4 rand = pcg4d(seed);
+		float2 radius = sqrt(-2*log((rand.xy>>9u)/8388608.0 + 0.5/8388608.0));
+		float2 angle  = int2(rand.zw-2147483648) / 2147483648.0 * UNITY_PI;
+		O = float4(cos(angle), sin(angle)) * radius.xyxy;
+
 	#elif defined(FUNC_ROTARY)
 		uint j = pos.y%(_OutputDim.y/_ReduceDim.y);
 		uint dim = _RotaryDim.y/2;
@@ -89,19 +121,6 @@ float4 main(uint2 pos) {
 	if(_AddDim.x)
 		O += LOAD_TENSOR(_Add, pos.xy/(_OutputDim.xy/_AddDim.xy));
 
-	#if defined(FUNC_GELU)
-		O = gelu(O);
-	#elif defined(FUNC_GELU_NEW)
-		O = gelu_tanh(O);
-	#elif defined(FUNC_RELU)
-		O = max(0,O) + _Eps * min(0,O); // leaky relu
-	#elif defined(FUNC_SIGMOID)
-		O = sigmoid(O);
-	#elif defined(FUNC_SILU)
-		O = silu(O);
-	#elif defined(FUNC_TANH)
-		O = tanh(O);
-	#endif
 	return O;
 }
 float4 frag(float4 screenPos : SV_Position) : SV_Target {
@@ -118,8 +137,11 @@ HLSLPROGRAM
 #pragma target 5.0
 #pragma vertex vertQuad
 #pragma fragment frag
-#pragma shader_feature _ FUNC_GROUPNORM FUNC_SOFTMAX_LINF FUNC_NORMALIZE_L1 FUNC_GUMBEL FUNC_ROTARY\
-	FUNC_GELU FUNC_GELU_NEW FUNC_RELU FUNC_SIGMOID FUNC_SILU FUNC_TANH
+#pragma shader_feature _\
+	FUNC_GROUPNORM FUNC_SOFTMAX\
+	FUNC_GELU FUNC_GELU_NEW FUNC_RELU FUNC_SIGMOID FUNC_SILU FUNC_TANH\
+	FUNC_EXP FUNC_GUMBEL FUNC_NORMAL\
+	FUNC_ROTARY
 ENDHLSL
 	}
 }

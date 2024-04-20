@@ -8,6 +8,7 @@ Properties {
 	[NoScaleOffset]  _OffsetTex("_OffsetTex", 2D) = "black" {}
 	_Window  ("_Window",  Vector) = (0, 1048576, 0, 0)
 	_IndexMod("_IndexMod", Int) = 1
+	_Scale   ("_Scale", Float) = 1
 	_Linear0 ("_Linear0", Vector) = (1, 0, 0, 0)
 	_Linear1 ("_Linear1", Vector) = (0, 1, 0, 0)
 	_Linear2 ("_Linear2", Vector) = (0, 0, 1, 0)
@@ -24,6 +25,7 @@ Texture2D<float4> _InputTex;  uint4 _InputDim;
 Texture2D<float4> _OffsetTex; uint4 _OffsetDim;
 uniform float4 _Window;
 uniform uint   _IndexMod;
+uniform float  _Scale;
 uniform float4 _Linear0;
 uniform float4 _Linear1;
 uniform float4 _Linear2;
@@ -47,6 +49,8 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 	int2 range = _Window.xy + dot(_Window.zw, LOAD_TENSOR(_Offset, uint2(pos.x, 0)).xy);
 	#if defined(REDUCE_SUMPOW)
 		float4 O = 0;
+	#elif defined(REDUCE_SUMEXP)
+		float4 O = float4(-oo, 0, 0, 0);
 	#elif defined(REDUCE_MINMAX)
 		float4 O = float4(+oo, -oo, 0, 0);
 	#endif
@@ -57,7 +61,11 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 			int4 index = (jK%_IndexMod+k)*4 + uint4(0,1,2,3);
 			bool4 mask = range.x <= index && index < range.y;
 			#if defined(REDUCE_SUMPOW)
-				X = float4(dot(mask, 1), dot(mask, X), dot(mask, X*X), 0); // cubic not implemented
+				X = float4(dot(mask, 1), dot(mask, X), dot(mask, X*X), dot(mask, X*X*X));
+			#elif defined(REDUCE_SUMEXP)
+				float4 Xmax = mask ? X*_Scale : -oo;
+				X[0] = max4(Xmax);
+				X[1] = dot(1, saturate(exp(Xmax-X[0])));
 			#elif defined(REDUCE_MINMAX)
 				float4 Xmin = mask ? X : +oo;
 				float4 Xmax = mask ? X : -oo;
@@ -69,6 +77,10 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 		#endif
 		#if defined(REDUCE_SUMPOW)
 			O += X;
+		#elif defined(REDUCE_SUMEXP)
+			float e = saturate(exp(-abs(X[0]-O[0])));
+			O[1] = X[0] > O[0] ? X[1] + O[1]*e : X[1]*e + O[1];
+			O[0] = max(X[0], O[0]);
 		#elif defined(REDUCE_MINMAX)
 			O[2] = X[0] < O[0] ? X[2] : O[2];
 			O[3] = X[1] > O[1] ? X[3] : O[3];
@@ -101,7 +113,7 @@ HLSLPROGRAM
 #pragma vertex vertQuad
 #pragma fragment frag
 #pragma shader_feature INPUT_REDUCED
-#pragma shader_feature REDUCE_SUMPOW REDUCE_MINMAX
+#pragma shader_feature REDUCE_SUMPOW REDUCE_SUMEXP REDUCE_MINMAX
 ENDHLSL
 	}
 }
