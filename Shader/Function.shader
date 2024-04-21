@@ -54,62 +54,52 @@ float4 main(uint2 pos) {
 	int4 index = pos.y%(_OutputDim.y/_ReduceDim.y)*4 + uint4(0,1,2,3);
 	int2 range = _Window.xy + dot(_Window.zw, LOAD_TENSOR(_Offset, uint2(pos.x, 0)).xy);
 	bool4 mask = range.x <= index && index < range.y;
-	#if defined(FUNC_GROUPNORM)
-		// torch.nn.functional.group_norm
+	#if defined(FUNC_GROUPNORM) // torch.nn.functional.group_norm
 		O = (X*R[0]-R[1]) * rsqrt(_Eps*(R[0]*R[0]) + max(0, R[2]*R[0]-R[1]*R[1])); // R[n] is sum of n-th powers
-	#elif defined(FUNC_SOFTMAX)
-		// torch.nn.functional.softmax
+	#elif defined(FUNC_SOFTMAX) // torch.nn.functional.softmax
 		O = saturate(exp(X*_Scale-R[0])/R[1]); // exp(R[0])*R[1] is sum of exps
 
-	#elif defined(FUNC_GELU)
-		// torch.nn.functional.gelu(approximate="none")
+	#elif defined(FUNC_GELU) // torch.nn.functional.gelu
 		O = gelu(X);
-	#elif defined(FUNC_GELU_NEW)
-		// torch.nn.functional.gelu(approximate="tanh")
+	#elif defined(FUNC_GELU_NEW) // torch.nn.functional.gelu(approximate="tanh")
 		O = gelu_tanh(X);
-	#elif defined(FUNC_RELU)
-		// torch.nn.functional.leaky_relu
+	#elif defined(FUNC_RELU) // torch.nn.functional.leaky_relu
 		O = max(0,X) + _Eps * min(0,X);
-	#elif defined(FUNC_SIGMOID)
-		// torch.nn.functional.sigmoid
+	#elif defined(FUNC_SIGMOID) // torch.nn.functional.sigmoid
 		O = sigmoid(X);
-	#elif defined(FUNC_SILU)
-		// torch.nn.functional.silu
+	#elif defined(FUNC_SILU) // torch.nn.functional.silu
 		O = silu(X);
-	#elif defined(FUNC_TANH)
-		// torch.nn.functional.tanh
+	#elif defined(FUNC_TANH) // torch.nn.functional.tanh
 		O = tanh(X);
 
-	#elif defined(FUNC_EXP)
-		// torch.exp
+	#elif defined(FUNC_EXP) // torch.exp
 		O = exp(X*_Scale);
-	#elif defined(FUNC_GUMBEL)
-		// torch.distributions.gumbel.Gumbel
+	#elif defined(FUNC_GUMBEL) // torch.distributions.gumbel
 		uint4 seed = uint4(pos.xy, asuint(_Time.y), asuint(_SinTime.w));
 		O = -log(-log((pcg4d(seed)>>9u)/8388608.0 + 0.5/8388608.0)); // be careful to avoid input 0,1
-	#elif defined(FUNC_NORMAL)
-		// torch.distributions.normal.Normal
+	#elif defined(FUNC_NORMAL) // torch.distributions.normal
 		uint4 seed = uint4(pos.xy, asuint(_Time.y), asuint(_SinTime.w));
 		uint4 rand = pcg4d(seed);
 		float2 radius = sqrt(-2*log((rand.xy>>9u)/8388608.0 + 0.5/8388608.0));
 		float2 angle  = int2(rand.zw-2147483648) / 2147483648.0 * UNITY_PI;
 		O = float4(cos(angle), sin(angle)) * radius.xyxy;
 
-	#elif defined(FUNC_ROTARY)
+	#elif defined(FUNC_ROTARY) // transformers.models.llama.apply_rotary_pos_emb
 		uint j = pos.y%(_OutputDim.y/_ReduceDim.y);
-		uint dim = _RotaryDim.y/2;
-		if(j < dim) {
-			float4 reX = X;
-			float4 imX = LOAD_TENSOR(_Input, _InputOff.xy+_InputOff.zw*(pos+uint2(0,dim)));
-			float4 reY = LOAD_TENSOR(_Rotary, uint2(pos.x, j));
-			float4 imY = LOAD_TENSOR(_Rotary, uint2(pos.x, j+dim));
-			O = reX*reY - imX*imY; // real part
-		} else if(j < dim*2) {
-			float4 imX = X;
-			float4 reX = LOAD_TENSOR(_Input, _InputOff.xy+_InputOff.zw*(pos-uint2(0,dim)));
-			float4 imY = LOAD_TENSOR(_Rotary, uint2(pos.x, j));
-			float4 reY = LOAD_TENSOR(_Rotary, uint2(pos.x, j-dim));
-			O = reX*imY + imX*reY; // imaginary part
+		uint J = _RotaryDim.y;
+		if(j < J) {
+			uint2 k = j+(J+uint2(0,1))/2;
+			float4 Z, W, Y = LOAD_TENSOR(_Rotary, uint2(pos.x, j));
+			if(J%2 == 0) {
+				W = LOAD_TENSOR(_Rotary, uint2(pos.x, k.x%J));
+				Z = LOAD_TENSOR(_Input, _InputOff.xy+_InputOff.zw*uint2(pos.x, pos.y-j+k.x%J));
+			} else {
+				W.xy = LOAD_TENSOR(_Rotary, uint2(pos.x, k.x%J)).zw;
+				W.zw = LOAD_TENSOR(_Rotary, uint2(pos.x, k.y%J)).xy;
+				Z.xy = LOAD_TENSOR(_Input, _InputOff.xy+_InputOff.zw*uint2(pos.x, pos.y-j+k.x%J)).zw;
+				Z.zw = LOAD_TENSOR(_Input, _InputOff.xy+_InputOff.zw*uint2(pos.x, pos.y-j+k.y%J)).xy;
+			}
+			O = k.xxyy >= J ? Z*Y + X*W : X*Y - Z*W;
 		}
 	#endif
 

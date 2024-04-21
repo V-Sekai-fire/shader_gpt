@@ -3,20 +3,17 @@ using System.Text.RegularExpressions;
 
 namespace ShaderGPT.Models {
 [System.Serializable]
-public class GPTNeoXConfig {
+public class GPTNeoXConfig : ModelForCausalLMConfig {
+	public int max_position_embeddings;
+	public int hidden_size;
 	public int num_hidden_layers;
 	public int num_attention_heads;
-	public float layer_norm_eps;
 	public string hidden_act;
-	public int max_position_embeddings;
+	public float layer_norm_eps;
 	public bool use_parallel_residual;
 }
-public class GPTNeoX : ModelForCausalLM {
-	public GPTNeoXConfig config;
-	public GPTNeoX(TensorNN nn, TextAsset configJson): base(nn, configJson) {
-		config = JsonUtility.FromJson<GPTNeoXConfig>(configJson.text);
-		maxLength = Mathf.Min(maxLength, config.max_position_embeddings);
-	}
+public class GPTNeoX : ModelForCausalLM<GPTNeoXConfig> {
+	public GPTNeoX(TensorNN nn, TextAsset configJson): base(nn, configJson) {}
 	public override (Texture, Texture) ForCausalLM(Texture input_ids) => GPTNeoXForCausalLM(input_ids);
 
 	void GPTNeoXAttention(ref Texture hidden_states, Texture input_ids, string path) {
@@ -31,13 +28,13 @@ public class GPTNeoX : ModelForCausalLM {
 		key   = BatchRelease(nn.Rotary(MarkRelease(key),   rotary, groups:config.num_attention_heads));
 		ctx.Release(rotary);
 
-		var keys   = ctx.PersistentGPUTensor($"{path}.k", maxLength, ctx.Size1(key), dtype:ctx.DType(key));
-		var values = ctx.PersistentGPUTensor($"{path}.v", maxLength, ctx.Size1(value), dtype:ctx.DType(value));
+		var keys   = ctx.PersistentGPUTensor($"{path}.k", max_length, ctx.Size1(key), dtype:ctx.DType(key));
+		var values = ctx.PersistentGPUTensor($"{path}.v", max_length, ctx.Size1(value), dtype:ctx.DType(value));
 		BatchRelease(nn.IndexCopy(keys,   (input_ids, 1), MarkRelease(key)));
 		BatchRelease(nn.IndexCopy(values, (input_ids, 1), MarkRelease(value)));
 
 		var window_size = config.max_position_embeddings;
-		var norm_factor = 1f / Mathf.Sqrt(ctx.Size1(query)*4 / config.num_attention_heads);
+		var norm_factor = 1f / Mathf.Sqrt(config.hidden_size / config.num_attention_heads);
 		var attn_scores = BatchRelease(nn.Linear(MarkRelease(query), keys, heads:config.num_attention_heads));
 		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores), scale:norm_factor,
 			groups:config.num_attention_heads, window:new Vector4(1-window_size, 1, 0, 1), offset:input_ids));

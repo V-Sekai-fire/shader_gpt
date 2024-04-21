@@ -35,7 +35,7 @@ public class BasicLM : MonoBehaviour {
 		set { nn.ctx = value; }
 	}
 	private ModelForCausalLM model;
-	private Config config;
+	private ModelForCausalLMConfig config;
 	private Tokenizer tokenizer;
 
 	private List<int> tokens;
@@ -48,7 +48,7 @@ public class BasicLM : MonoBehaviour {
 			kernels = shaders.ToDictionary(x => x.name.Split('/')[1], x => x),
 		};
 		model = ModelForCausalLM.FromPretrained(nn, configJson, textures);
-		config = JsonUtility.FromJson<Config>(configJson.text);
+		config = JsonUtility.FromJson<ModelForCausalLMConfig>(configJson.text);
 		tokenizer = JsonUtility.FromJson<Tokenizer>(tokenizerJson.text);
 		var testcase = testcaseJson ? JsonUtility.FromJson<Testcase>(testcaseJson.text) : null;
 
@@ -80,6 +80,7 @@ public class BasicLM : MonoBehaviour {
 			EditorGUIUtility.PingObject(((TensorTracer)ctx).Export(path));
 #endif
 		}
+		RenderTexture.active = null; // suppress warning
 	}
 	public void OnDisable() {
 		ctx.ReleasePersistent();
@@ -203,10 +204,6 @@ public class BasicLM : MonoBehaviour {
 			ctx.DebugTensor(rt);
 	}
 
-	[System.Serializable]
-	class Config {
-		public int vocab_size;
-	}
 	[System.Serializable]
 	public class Tokenizer {
 		public string[] vocab;

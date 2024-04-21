@@ -1,17 +1,18 @@
 using UnityEngine;
 
 namespace ShaderGPT {
+[System.Serializable]
+public class ModelForCausalLMConfig {
+	public string model_type;
+	public int vocab_size;
+}
 public abstract class ModelForCausalLM : Module {
-	public int maxLength = 2048;
+	public int max_length = 2048; // generation config
 	public abstract (Texture, Texture) ForCausalLM(Texture input_ids);
-	public ModelForCausalLM(TensorNN nn, TextAsset configJson): base(nn) {}
+	public ModelForCausalLM(TensorNN nn): base(nn) {}
 
-	[System.Serializable]
-	class Config {
-		public string model_type;
-	}
 	static ModelForCausalLM FromPretrained(TensorNN nn, TextAsset configJson) {
-		var config = JsonUtility.FromJson<Config>(configJson.text);
+		var config = JsonUtility.FromJson<ModelForCausalLMConfig>(configJson.text);
 		switch(config.model_type) {
 		case "gpt2":
 			return new Models.GPT2(nn, configJson);
@@ -19,6 +20,7 @@ public abstract class ModelForCausalLM : Module {
 			return new Models.GPTNeo(nn, configJson);
 		case "gpt_neox":
 			return new Models.GPTNeoX(nn, configJson);
+		case "gemma":
 		case "llama":
 		case "mistral":
 		case "qwen2":
@@ -34,6 +36,12 @@ public abstract class ModelForCausalLM : Module {
 		var model = FromPretrained(nn, configJson);
 		model.LoadStateDict(textures);
 		return model;
+	}
+}
+public abstract class ModelForCausalLM<T> : ModelForCausalLM where T : ModelForCausalLMConfig {
+	public T config;
+	public ModelForCausalLM(TensorNN nn, TextAsset configJson): base(nn) {
+		config = JsonUtility.FromJson<T>(configJson.text);
 	}
 }
 }

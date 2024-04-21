@@ -40,6 +40,8 @@ public abstract class Module {
 		ctx.FixSize0(state_dict[name], size0);
 		if(state_dict.TryGetValue(name+".q8", out var quantizer))
 			ctx.FixSize0(quantizer, (size0+3)/4);
+		if(state_dict.TryGetValue(name+".q8.idx", out var permuter))
+			ctx.FixSize0(permuter, 1);
 	}
 }
 }
