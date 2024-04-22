@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace ShaderGPT.Models {
 [System.Serializable]
-public class LlamaConfig : ModelForCausalLMConfig {
+public class LlamaConfig : PretrainedConfig {
 	public int max_position_embeddings;
 	public int hidden_size;
 	public int num_hidden_layers;
@@ -76,8 +76,8 @@ public class Llama : ModelForCausalLM<LlamaConfig> {
 	(Texture, Texture) LlamaForCausalLM(Texture input_ids) {
 		FixSize0("lm_head.weight.T", config.hidden_size);
 		var hidden_states = LlamaModel(input_ids, path:"model");
-		var lm_logits = nn.Linear(hidden_states, state_dict["lm_head.weight.T"], weightT:true);
-		return (hidden_states, lm_logits);
+		var logits = nn.Linear(hidden_states, state_dict["lm_head.weight.T"], weightT:true);
+		return (hidden_states, logits);
 	}
 }
 }

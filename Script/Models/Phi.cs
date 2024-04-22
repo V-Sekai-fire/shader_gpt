@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace ShaderGPT.Models {
 [System.Serializable]
-public class PhiConfig : ModelForCausalLMConfig {
+public class PhiConfig : PretrainedConfig {
 	public int max_position_embeddings;
 	public int hidden_size;
 	public int num_hidden_layers;
@@ -63,8 +63,8 @@ public class Phi : ModelForCausalLM<PhiConfig> {
 	}
 	(Texture, Texture) PhiForCausalLM(Texture input_ids) {
 		var hidden_states = PhiModel(input_ids, path:"model");
-		var lm_logits = nn.Linear(hidden_states, state_dict["lm_head.weight.T"], state_dict["lm_head.bias"], weightT:true);
-		return (hidden_states, lm_logits);
+		var logits = nn.Linear(hidden_states, state_dict["lm_head.weight.T"], state_dict["lm_head.bias"], weightT:true);
+		return (hidden_states, logits);
 	}
 }
 }

@@ -13,12 +13,7 @@ public class BasicLM : MonoBehaviour {
 	public TextAsset configJson;
 	public TextAsset tokenizerJson;
 	public TextAsset testcaseJson;
-
-	[Header("Generation")]
-	public int maxLength = 2048;
-	public float temperature = 0;
-	public float repetitionPenalty = 1f;
-	public float interval = 0.1f;
+	public GenerationConfig generationConfig;
 
 	public enum Task {
 		Run = 0,
@@ -28,6 +23,7 @@ public class BasicLM : MonoBehaviour {
 	[Header("Task")]
 	public Task task;
 	public UnityEngine.UI.Text outputText;
+	public float interval = 0.1f;
 
 	protected TensorNN nn;
 	protected TensorContext ctx {
@@ -35,7 +31,7 @@ public class BasicLM : MonoBehaviour {
 		set { nn.ctx = value; }
 	}
 	private ModelForCausalLM model;
-	private ModelForCausalLMConfig config;
+	private PretrainedConfig config;
 	private Tokenizer tokenizer;
 
 	private List<int> tokens;
@@ -48,7 +44,8 @@ public class BasicLM : MonoBehaviour {
 			kernels = shaders.ToDictionary(x => x.name.Split('/')[1], x => x),
 		};
 		model = ModelForCausalLM.FromPretrained(nn, configJson, textures);
-		config = JsonUtility.FromJson<ModelForCausalLMConfig>(configJson.text);
+		model.generation_config = generationConfig;
+		config = JsonUtility.FromJson<PretrainedConfig>(configJson.text);
 		tokenizer = JsonUtility.FromJson<Tokenizer>(tokenizerJson.text);
 		var testcase = testcaseJson ? JsonUtility.FromJson<Testcase>(testcaseJson.text) : null;
 
@@ -87,7 +84,7 @@ public class BasicLM : MonoBehaviour {
 	}
 	public void Update() {
 		if(task == Task.Run) {
-			if(tokens.Count >= maxLength)
+			if(tokens.Count >= generationConfig.max_length)
 				return;
 			if(Time.time < nextTime)
 				return;
@@ -114,9 +111,10 @@ public class BasicLM : MonoBehaviour {
 		var input = InputTensor(tokens, positionId);
 		var (hidden_states, logits) = model.ForCausalLM(input);
 		ctx.Release(hidden_states);
-		var next_tokens = Generate(input, ref logits);
+		var next_tokens = model.Generate(input, ref logits);
 		ctx.Release(input);
-		var data = BatchRelease(ctx.GetData((RenderTexture)MarkRelease(next_tokens)));
+		var data = ctx.GetData((RenderTexture)next_tokens);
+		ctx.Release(next_tokens);
 		return Mathf.RoundToInt(data[0]);
 	}
 	public void Test(Testcase testcase) {
@@ -133,7 +131,7 @@ public class BasicLM : MonoBehaviour {
 		var input = ctx.PersistentGPUTensor("input", 1, 1);
 		var (hidden_states, logits) = model.ForCausalLM(input);
 		ctx.Release(hidden_states);
-		var next_tokens = Generate(input, ref logits);
+		var next_tokens = model.Generate(input, ref logits);
 		nn.Copy(input, next_tokens, ctx.Size(input));
 		ctx.Release(next_tokens);
 	}
@@ -149,39 +147,7 @@ public class BasicLM : MonoBehaviour {
 		ctx.SetData(input, inputData);
 		return input;
 	}
-	protected void RepetitionPenaltyLogitsProcessor(Texture input_ids, ref Texture scores, float penalty, Texture last_input_ids) {
-		var inputs_T = nn.Transpose(input_ids, 1);
-		inputs_T = BatchRelease(nn.Fusion(MarkRelease(inputs_T), @default:4*ctx.Size1(scores)*Vector4.one,
-			window:new Vector4(-maxLength, ctx.Size0(last_input_ids), 0, 1), offset:last_input_ids));
-		var mask = nn.Fusion(scores, scale:0f);
-		BatchRelease(nn.IndexCopy((RenderTexture)mask, (MarkRelease(inputs_T), 0), null, fill:1f, axis1:true));
-		var penal = nn.Fusion(scores, func:TensorNN.Keyword.FUNC_RELU, eps:penalty*penalty, scale:1f/penalty);
-		var diff = BatchRelease(nn.Fusion(scores, scale:-1, add:MarkRelease(penal)));
-		scores = BatchRelease(nn.Fusion(MarkRelease(mask), mul:MarkRelease(diff), add:MarkRelease(scores)));
-	}
-	protected Texture Generate(Texture input, ref Texture scores) {
-		var inputs = ctx.PersistentGPUTensor("inputs", maxLength, 1);
-		nn.IndexCopy(inputs, (input, 1), input);
-		if(ctx.Size0(scores) > 1)
-			scores = BatchRelease(nn.Copy(null, MarkRelease(scores),
-				size:new Vector2Int(1, ctx.Size1(scores)), inputOffset:new Vector2Int(ctx.Size0(scores)-1, 0)));
-		RepetitionPenaltyLogitsProcessor(inputs, ref scores, repetitionPenalty, input);
-		var gumbel = BatchRelease(nn.Gumbel(MarkRelease(scores), temperature));
-		return BatchRelease(nn.ArgMax(MarkRelease(gumbel), window:new Vector2(0, config.vocab_size)));
-	}
 
-	// utilities
-	List<Texture> releaseList = new List<Texture>();
-	protected T MarkRelease<T>(T tex) where T: Texture {
-		releaseList.Add(tex);
-		return tex;
-	}
-	protected T BatchRelease<T>(T x) {
-		foreach(var tex in releaseList)
-			ctx.Release(tex);
-		releaseList.Clear();
-		return x;
-	}
 	protected void AssertData(RenderTexture rt, int row, float[] value, float eps) {
 		var col = ctx.Size1(rt) * 4;
 		var offset = (row>=0 ? row : ctx.Size0(rt)+row) * col;
@@ -198,10 +164,12 @@ public class BasicLM : MonoBehaviour {
 		}
 		errorL1 = errorL1/count;
 		errorL2 = Mathf.Sqrt(errorL2/count);
-		Debug.Log($"error: L1={errorL1}, L2={errorL2}, Li={errorLi}");
-		Debug.Assert(Mathf.Abs(errorLi) < eps);
-		if(Mathf.Abs(errorLi) >= eps)
+		if(Mathf.Abs(errorLi) < eps) {
+			Debug.Log($"error: L1={errorL1}, L2={errorL2}, Li={errorLi}");
+		} else {
+			Debug.LogError($"error: L1={errorL1}, L2={errorL2}, Li={errorLi}");
 			ctx.DebugTensor(rt);
+		}
 	}
 
 	[System.Serializable]

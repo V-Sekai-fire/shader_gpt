@@ -132,22 +132,35 @@ public class TensorContext {
 		Release(clone);
 		return output;
 	}
-	public void DebugTensor(Texture input) {
+	public void DebugTensor(Texture input, bool full=false) {
 		if(input is RenderTexture rt) {
 			var data = new NativeArray<float>(GetData(rt), Allocator.Temp);
-			DebugTensor(data, Size0(rt), Size1(rt)*4);
+			DebugTensor(data, Size0(rt), Size1(rt)*4, full);
 			data.Dispose();
 		} else if(input is Texture2D tex) {
 			var data = GetData(tex);
-			DebugTensor(data, Size0(tex), Size1(tex)*4);
+			DebugTensor(data, Size0(tex), Size1(tex)*4, full);
 		} else
 			Debug.LogError($"unsupported texture type {input}");
 	}
-	void DebugTensor(NativeArray<float> data, int row, int col) {
-		Debug.Log($"shape: {row}, {col}");
+	void DebugTensor(NativeArray<float> data, int nrow, int ncol, bool full) {
 		var sb = new System.Text.StringBuilder();
-		for(int i=0; i<row; i++)
-			sb.AppendLine(string.Join(", ", new NativeSlice<float>(data, i*col, col).Select(x => x.ToString("F4"))));
+		sb.AppendFormat("tensor(shape=({0}, {1}), [\n", nrow, ncol);
+		for(int i=0; i<nrow; i++) {
+			if(nrow > 12 && !full && 3 <= i && i < nrow-3) {
+				if(i == 3)
+					sb.AppendLine("...,");
+				continue;
+			}
+			var row = new NativeSlice<float>(data, i*ncol, ncol);
+			sb.Append("[");
+			if(ncol > 12 && !full)
+				sb.AppendFormat("{0:F4}, {1:F4}, {2:F4},  ..., {3:F4}, {4:F4}, {5:F4}",
+					row[0], row[1], row[2], row[ncol-3], row[ncol-2], row[ncol-1]);
+			else
+				sb.AppendJoin(", ", row.Select(x => x.ToString("F4")));
+			sb.AppendLine("],");
+		}
 		Debug.Log(sb.ToString());
 	}
 

@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace ShaderGPT.Models {
 [System.Serializable]
-public class GPT2Config : ModelForCausalLMConfig {
+public class GPT2Config : PretrainedConfig {
 	public int n_positions;
 	public int n_embd;
 	public int n_layer;
@@ -63,8 +63,8 @@ public class GPT2 : ModelForCausalLM<GPT2Config> {
 	(Texture, Texture) GPT2LMHeadModel(Texture input_ids) {
 		var hidden_states = GPT2Model(input_ids, path:"transformer");
 		state_dict.TryGetValue("lm_head.weight.T", out var lm_head);
-		var lm_logits = nn.Linear(hidden_states, lm_head ?? state_dict["transformer.wte.weight.T"], weightT:true);
-		return (hidden_states, lm_logits);
+		var logits = nn.Linear(hidden_states, lm_head ?? state_dict["transformer.wte.weight.T"], weightT:true);
+		return (hidden_states, logits);
 	}
 }
 }

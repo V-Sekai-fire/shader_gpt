@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace ShaderGPT.Models {
 [System.Serializable]
-public class GPTNeoXConfig : ModelForCausalLMConfig {
+public class GPTNeoXConfig : PretrainedConfig {
 	public int max_position_embeddings;
 	public int hidden_size;
 	public int num_hidden_layers;
@@ -64,8 +64,8 @@ public class GPTNeoX : ModelForCausalLM<GPTNeoXConfig> {
 	}
 	(Texture, Texture) GPTNeoXForCausalLM(Texture input_ids) {
 		var hidden_states = GPTNeoXModel(input_ids, path:"gpt_neox");
-		var lm_logits = nn.Linear(hidden_states, state_dict["embed_out.weight.T"], weightT:true);
-		return (hidden_states, lm_logits);
+		var logits = nn.Linear(hidden_states, state_dict["embed_out.weight.T"], weightT:true);
+		return (hidden_states, logits);
 	}
 }
 }

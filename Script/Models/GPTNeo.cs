@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace ShaderGPT.Models {
 [System.Serializable]
-public class GPTNeoConfig : ModelForCausalLMConfig {
+public class GPTNeoConfig : PretrainedConfig {
 	public int max_position_embeddings;
 	public int hidden_size;
 	public int num_layers;
@@ -62,8 +62,8 @@ public class GPTNeo : ModelForCausalLM<GPTNeoConfig> {
 	(Texture, Texture) GPTNeoForCausalLM(Texture input_ids) {
 		var hidden_states = GPTNeoModel(input_ids, path:"transformer");
 		state_dict.TryGetValue("lm_head.weight.T", out var lm_head);
-		var lm_logits = nn.Linear(hidden_states, lm_head ?? state_dict["transformer.wte.weight.T"], weightT:true);
-		return (hidden_states, lm_logits);
+		var logits = nn.Linear(hidden_states, lm_head ?? state_dict["transformer.wte.weight.T"], weightT:true);
+		return (hidden_states, logits);
 	}
 }
 }
