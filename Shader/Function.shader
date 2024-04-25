@@ -3,19 +3,18 @@ Properties {
 	_OutputDim("_OutputDim", Vector) = (1, 1, 0, 0)
 	_InputDim ("_InputDim",  Vector) = (1, 1, 0, 0)
 	_ReduceDim("_ReduceDim", Vector) = (1, 1, 0, 0)
-	_OffsetDim("_OffsetDim", Vector) = (0, 0, 0, 0)
+	_WindowDim("_WindowDim", Vector) = (0, 0, 0, 0)
 	_MulDim   ("_MulDim",    Vector) = (0, 0, 0, 0)
 	_AddDim   ("_AddDim",    Vector) = (0, 0, 0, 0)
 	_RotaryDim("_RotaryDim", Vector) = (0, 0, 0, 0)
-	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
-	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
-	[NoScaleOffset]  _ReduceTex("_ReduceTex", 2D) = "black" {}
-	[NoScaleOffset]  _OffsetTex("_OffsetTex", 2D) = "black" {}
-	[NoScaleOffset]  _MulTex   ("_MulTex",    2D) = "black" {}
-	[NoScaleOffset]  _AddTex   ("_AddTex",    2D) = "black" {}
-	[NoScaleOffset]  _RotaryTex("_RotaryTex", 2D) = "black" {}
-	_OutputOff("_OutputOff", Vector) = (0, 0, 1, 1)
-	_InputOff ("_InputOff",  Vector) = (0, 0, 1, 1)
+	[HideInInspector]
+	_OutputTex("_OutputTex", 2D) = "black" {}
+	_InputTex ("_InputTex",  2D) = "black" {}
+	_ReduceTex("_ReduceTex", 2D) = "black" {}
+	_WindowTex("_WindowTex", 2D) = "black" {}
+	_MulTex   ("_MulTex",    2D) = "black" {}
+	_AddTex   ("_AddTex",    2D) = "black" {}
+	_RotaryTex("_RotaryTex", 2D) = "black" {}
 	_Window   ("_Window",    Vector) = (0, 1048576, 0, 0)
 	_Default  ("_Default",   Vector) = (0, 0, 0, 0)
 	_Scale    ("_Scale", Float) = 1
@@ -29,15 +28,13 @@ HLSLINCLUDE
 #include "UnityCG.cginc"
 #include "Common.hlsl"
 
-uint4 _OutputDim;
-Texture2D<float4> _InputTex;  uint4 _InputDim;
-Texture2D<float4> _ReduceTex; uint4 _ReduceDim;
-Texture2D<float4> _OffsetTex; uint4 _OffsetDim;
-Texture2D<float4> _MulTex;    uint4 _MulDim;
-Texture2D<float4> _AddTex;    uint4 _AddDim;
-Texture2D<float4> _RotaryTex; uint4 _RotaryDim;
-uniform int2 _OutputOff;
-uniform int4 _InputOff;
+uint4 _OutputDim; int4 _OutputTex_ST;
+DEFINE_TEXTURE2D(_InputTex);  uint4 _InputDim;
+DEFINE_TEXTURE2D(_ReduceTex); uint4 _ReduceDim;
+DEFINE_TEXTURE2D(_WindowTex); uint4 _WindowDim;
+DEFINE_TEXTURE2D(_MulTex);    uint4 _MulDim;
+DEFINE_TEXTURE2D(_AddTex);    uint4 _AddDim;
+DEFINE_TEXTURE2D(_RotaryTex); uint4 _RotaryDim;
 uniform float4 _Window;
 uniform float4 _Default;
 uniform float _Eps;
@@ -48,11 +45,11 @@ uniform float4 _Add;
 float4 main(uint2 pos) {
 	// output[i,j] = func(input[i,j]) * mul + add
 
-	float4 X = LOAD_TENSOR(_Input, _InputOff.xy+_InputOff.zw*pos);
+	float4 X = LOAD_TENSOR(_Input, _InputTex_ST.xy*pos);
 	float4 R = LOAD_TENSOR(_Reduce, pos.xy/(_OutputDim.xy/_ReduceDim.xy));
 	float4 O = X;
 	int4 index = pos.y%(_OutputDim.y/_ReduceDim.y)*4 + uint4(0,1,2,3);
-	int2 range = _Window.xy + dot(_Window.zw, LOAD_TENSOR(_Offset, uint2(pos.x, 0)).xy);
+	int2 range = _Window.xy + dot(_Window.zw, LOAD_TENSOR(_Window, uint2(min(_WindowDim.x-1, pos.x), 0)).xy);
 	bool4 mask = range.x <= index && index < range.y;
 	#if defined(FUNC_GROUPNORM) // torch.nn.functional.group_norm
 		O = (X*R[0]-R[1]) * rsqrt(_Eps*(R[0]*R[0]) + max(0, R[2]*R[0]-R[1]*R[1])); // R[n] is sum of n-th powers
@@ -92,12 +89,12 @@ float4 main(uint2 pos) {
 			float4 Z, W, Y = LOAD_TENSOR(_Rotary, uint2(pos.x, j));
 			if(J%2 == 0) {
 				W = LOAD_TENSOR(_Rotary, uint2(pos.x, k.x%J));
-				Z = LOAD_TENSOR(_Input, _InputOff.xy+_InputOff.zw*uint2(pos.x, pos.y-j+k.x%J));
+				Z = LOAD_TENSOR(_Input, _InputTex_ST.xy*uint2(pos.x, pos.y-j+k.x%J));
 			} else {
 				W.xy = LOAD_TENSOR(_Rotary, uint2(pos.x, k.x%J)).zw;
 				W.zw = LOAD_TENSOR(_Rotary, uint2(pos.x, k.y%J)).xy;
-				Z.xy = LOAD_TENSOR(_Input, _InputOff.xy+_InputOff.zw*uint2(pos.x, pos.y-j+k.x%J)).zw;
-				Z.zw = LOAD_TENSOR(_Input, _InputOff.xy+_InputOff.zw*uint2(pos.x, pos.y-j+k.y%J)).xy;
+				Z.xy = LOAD_TENSOR(_Input, _InputTex_ST.xy*uint2(pos.x, pos.y-j+k.x%J)).zw;
+				Z.zw = LOAD_TENSOR(_Input, _InputTex_ST.xy*uint2(pos.x, pos.y-j+k.y%J)).xy;
 			}
 			O = k.xxyy >= J ? Z*Y + X*W : X*Y - Z*W;
 		}
@@ -115,7 +112,7 @@ float4 main(uint2 pos) {
 }
 float4 frag(float4 screenPos : SV_Position) : SV_Target {
 	uint2 pos = getThreadId(screenPos, _OutputDim);
-	pos -= _OutputOff;
+	pos -= _OutputTex_ST.zw;
 	if(!all(0 <= int2(pos) && int2(pos) < int2(_OutputDim.xy)))
 		discard;
 	return main(pos);

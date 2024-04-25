@@ -2,10 +2,11 @@ Shader "GPT/Reduce" {
 Properties {
 	_OutputDim("_OutputDim", Vector) = (1, 1, 0, 0)
 	_InputDim ("_InputDim",  Vector) = (1, 1, 0, 0)
-	_OffsetDim("_OffsetDim", Vector) = (0, 0, 0, 0)
-	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
-	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
-	[NoScaleOffset]  _OffsetTex("_OffsetTex", 2D) = "black" {}
+	_WindowDim("_WindowDim", Vector) = (0, 0, 0, 0)
+	[HideInInspector]
+	_OutputTex("_OutputTex", 2D) = "black" {}
+	_InputTex ("_InputTex",  2D) = "black" {}
+	_WindowTex("_WindowTex", 2D) = "black" {}
 	_Window  ("_Window",  Vector) = (0, 1048576, 0, 0)
 	_IndexMod("_IndexMod", Int) = 1
 	_Scale   ("_Scale", Float) = 1
@@ -21,8 +22,8 @@ HLSLINCLUDE
 #include "Common.hlsl"
 
 uint4 _OutputDim;
-Texture2D<float4> _InputTex;  uint4 _InputDim;
-Texture2D<float4> _OffsetTex; uint4 _OffsetDim;
+DEFINE_TEXTURE2D(_InputTex);  uint4 _InputDim;
+DEFINE_TEXTURE2D(_WindowTex); uint4 _WindowDim;
 uniform float4 _Window;
 uniform uint   _IndexMod;
 uniform float  _Scale;
@@ -46,7 +47,7 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 	// output[i,j].yw = torch.max(input[i,j*K+k][c], dim=(k,c))
 
 	uint K = 1+(_InputDim.y-1)/_OutputDim.y, jK = pos.y*K;
-	int2 range = _Window.xy + dot(_Window.zw, LOAD_TENSOR(_Offset, uint2(pos.x, 0)).xy);
+	int2 range = _Window.xy + dot(_Window.zw, LOAD_TENSOR(_Window, uint2(min(_WindowDim.x-1, pos.x), 0)).xy);
 	#if defined(REDUCE_SUMPOW)
 		float4 O = 0;
 	#elif defined(REDUCE_SUMEXP)

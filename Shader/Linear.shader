@@ -5,11 +5,12 @@ Properties {
 	_WeightDim("_WeightDim", Vector) = (1, 1, 0, 0)
 	_QuantDim ("_QuantDim",  Vector) = (0, 0, 0, 0)
 	_BiasDim  ("_BiasDim",   Vector) = (0, 0, 0, 0)
-	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
-	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
-	[NoScaleOffset]  _WeightTex("_WeightTex", 2D) = "black" {}
-	[NoScaleOffset]  _QuantTex ("_QuantTex",  2D) = "black" {}
-	[NoScaleOffset]  _BiasTex  ("_BiasTex",   2D) = "black" {}
+	[HideInInspector]
+	_OutputTex("_OutputTex", 2D) = "black" {}
+	_InputTex ("_InputTex",  2D) = "black" {}
+	_WeightTex("_WeightTex", 2D) = "black" {}
+	_QuantTex ("_QuantTex",  2D) = "black" {}
+	_BiasTex  ("_BiasTex",   2D) = "black" {}
 }
 SubShader {
 	Tags { "PreviewType"="Plane" } // prevent freezing Unity editor
@@ -18,10 +19,10 @@ HLSLINCLUDE
 #include "Common.hlsl"
 
 uint4 _OutputDim;
-Texture2D<float4> _InputTex;  uint4 _InputDim;
-Texture2D<float4> _WeightTex; uint4 _WeightDim;
-Texture2D<float4> _QuantTex;  uint4 _QuantDim;
-Texture2D<float4> _BiasTex;   uint4 _BiasDim;
+DEFINE_TEXTURE2D(_InputTex);  uint4 _InputDim;
+DEFINE_TEXTURE2D(_WeightTex); uint4 _WeightDim;
+DEFINE_TEXTURE2D(_QuantTex);  uint4 _QuantDim;
+DEFINE_TEXTURE2D(_BiasTex);   uint4 _BiasDim;
 
 float4 main(uint2 pos, uint threadId, uint groupSize) {
 	// torch.nn.functional.linear(input, weight, bias) with multi-head support

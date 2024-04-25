@@ -25,8 +25,8 @@ public class BasicLM : MonoBehaviour {
 	public UnityEngine.UI.Text outputText;
 	public float interval = 0.1f;
 
-	protected TensorNN nn;
-	protected TensorContext ctx {
+	private TensorNN nn;
+	private TensorContext ctx {
 		get => nn.ctx;
 		set { nn.ctx = value; }
 	}
@@ -107,7 +107,7 @@ public class BasicLM : MonoBehaviour {
 		{typeof(Models.Llama), (4e-5f, 4e-5f)},
 		{typeof(Models.Phi), (1e-5f, 5e-5f)},
 	};
-	public int Run(int positionId) {
+	int Run(int positionId) {
 		var input = InputTensor(tokens, positionId);
 		var (hidden_states, logits) = model.ForCausalLM(input);
 		ctx.Release(hidden_states);
@@ -117,7 +117,7 @@ public class BasicLM : MonoBehaviour {
 		ctx.Release(next_tokens);
 		return Mathf.RoundToInt(data[0]);
 	}
-	public void Test(Testcase testcase) {
+	void Test(Testcase testcase) {
 		var (hidden_states_err, logits_err) = testErrMap[model.GetType()];
 		var input = InputTensor(testcase.input_ids);
 		var (hidden_states, logits) = model.ForCausalLM(input);
@@ -127,16 +127,16 @@ public class BasicLM : MonoBehaviour {
 		ctx.Release(hidden_states);
 		ctx.Release(logits);
 	}
-	public void Bake() {
+	void Bake() {
 		var input = ctx.PersistentGPUTensor("input", 1, 1);
 		var (hidden_states, logits) = model.ForCausalLM(input);
 		ctx.Release(hidden_states);
 		var next_tokens = model.Generate(input, ref logits);
-		nn.Copy(input, next_tokens, ctx.Size(input));
+		nn.Copy(input, next_tokens);
 		ctx.Release(next_tokens);
 	}
 	
-	protected Texture InputTensor(IList<int> input_ids, int position_id=0) {
+	Texture InputTensor(IList<int> input_ids, int position_id=0) {
 		var n = input_ids.Count-position_id;
 		var inputData = new float[n*4];
 		for(int i=0; i<n; i++) {
@@ -148,7 +148,7 @@ public class BasicLM : MonoBehaviour {
 		return input;
 	}
 
-	protected void AssertData(RenderTexture rt, int row, float[] value, float eps) {
+	void AssertData(RenderTexture rt, int row, float[] value, float eps) {
 		var col = ctx.Size1(rt) * 4;
 		var offset = (row>=0 ? row : ctx.Size0(rt)+row) * col;
 		var count = Mathf.Min(col, value.Length);
@@ -173,11 +173,11 @@ public class BasicLM : MonoBehaviour {
 	}
 
 	[System.Serializable]
-	public class Tokenizer {
+	class Tokenizer {
 		public string[] vocab;
 	}
 	[System.Serializable]
-	public class Testcase {
+	class Testcase {
 		public int[] input_ids;
 		public float[] hidden_states;
 		public float[] logits;

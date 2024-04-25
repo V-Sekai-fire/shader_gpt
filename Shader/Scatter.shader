@@ -3,9 +3,10 @@ Properties {
 	_OutputDim("_OutputDim", Vector) = (1, 1, 0, 0)
 	_InputDim ("_InputDim",  Vector) = (0, 0, 0, 0) // zero = use constant
 	_IndexDim ("_IndexDim",  Vector) = (1, 1, 0, 0)
-	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
-	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
-	[NoScaleOffset]  _IndexTex ("_IndexTex",  2D) = "black" {}
+	[HideInInspector]
+	_OutputTex("_OutputTex", 2D) = "black" {}
+	_InputTex ("_InputTex",  2D) = "black" {}
+	_IndexTex ("_IndexTex",  2D) = "black" {}
 	_Input    ("_Input",     Vector) = (0, 0, 0, 0)
 	_IndexOff ("_IndexOff",  Vector) = (0, 0, 0, 0)
 	_IndexChan("_IndexChan", Int) = 0
@@ -18,8 +19,8 @@ HLSLINCLUDE
 #include "Common.hlsl"
 
 uint4 _OutputDim;
-Texture2D<float4> _InputTex; uint4 _InputDim;
-Texture2D<float4> _IndexTex; uint4 _IndexDim;
+DEFINE_TEXTURE2D(_InputTex); uint4 _InputDim;
+DEFINE_TEXTURE2D(_IndexTex); uint4 _IndexDim;
 uniform float4 _Input;
 uniform uint _IndexChan;
 uniform uint _BatchOff;

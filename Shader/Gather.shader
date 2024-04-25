@@ -4,10 +4,11 @@ Properties {
 	_InputDim ("_InputDim",  Vector) = (1, 1, 0, 0)
 	_IndexDim ("_IndexDim",  Vector) = (0, 0, 0, 0) // zero = enumeration
 	_QuantDim ("_QuantDim",  Vector) = (0, 0, 0, 0)
-	[HideInInspector]_OutputTex("_OutputTex", 2D) = "black" {}
-	[NoScaleOffset]  _InputTex ("_InputTex",  2D) = "black" {}
-	[NoScaleOffset]  _IndexTex ("_IndexTex",  2D) = "black" {}
-	[NoScaleOffset]  _QuantTex ("_QuantTex",  2D) = "black" {}
+	[HideInInspector]
+	_OutputTex("_OutputTex", 2D) = "black" {}
+	_InputTex ("_InputTex",  2D) = "black" {}
+	_IndexTex ("_IndexTex",  2D) = "black" {}
+	_QuantTex ("_QuantTex",  2D) = "black" {}
 	_IndexChan("_IndexChan", Int) = 0
 }
 SubShader {
@@ -17,9 +18,9 @@ HLSLINCLUDE
 #include "Common.hlsl"
 
 uint4 _OutputDim;
-Texture2D<float4> _InputTex; uint4 _InputDim;
-Texture2D<float4> _IndexTex; uint4 _IndexDim;
-Texture2D<float4> _QuantTex; uint4 _QuantDim;
+DEFINE_TEXTURE2D(_InputTex); uint4 _InputDim;
+DEFINE_TEXTURE2D(_IndexTex); uint4 _IndexDim;
+DEFINE_TEXTURE2D(_QuantTex); uint4 _QuantDim;
 uniform uint _IndexChan;
 
 float4 main(uint2 pos) {

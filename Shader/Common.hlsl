@@ -100,4 +100,5 @@ uint4 getThreadIdAndGroupSize(float4 screenPos, uint4 dim) {
 float4 loadTensor(Texture2D<float4> tex, uint4 dim, uint2 ij) {
 	return tex.mips[dim.w][uint2(ij.y>>dim.z, (ij.y & ((1<<dim.z)-1)) | (ij.x<<dim.z))];
 }
-#define LOAD_TENSOR(name, ij) loadTensor(name##Tex, name##Dim, ij)
+#define LOAD_TENSOR(name, ij) loadTensor(name##Tex, name##Dim, name##Tex_ST.zw+ij)
+#define DEFINE_TEXTURE2D(name) Texture2D<float4> name; int4 name##_ST;

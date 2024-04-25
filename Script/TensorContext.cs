@@ -6,14 +6,31 @@ using UnityEngine.Rendering;
 using UnityEngine.Experimental.Rendering;
 
 namespace ShaderGPT {
+public readonly struct TexView : System.IEquatable<TexView> {
+	public readonly (Texture t, int s0, int s1, int o0, int o1) data;
+	public TexView(Texture tex, int size0, int size1, int off0=0, int off1=0) {
+		data = (tex, size0, size1, off0, off1);
+	}
+	public static implicit operator TexView(Texture tex) => tex ? new TexView(tex,
+		(tex.height >> (tex.mipmapCount-1)) >> (int)tex.mipMapBias,
+		(tex.width  >> (tex.mipmapCount-1)) << (int)tex.mipMapBias) : default;
+	public static explicit operator Texture(TexView view) => view.data.t;
+	public bool Equals(TexView other) => data == other.data;
+	public static implicit operator bool(TexView view) => view.data != default;
+}
 public class TensorContext {
 	// tensor properties and i/o
-	public int Size0(Texture tex) => (tex.height >> (tex.mipmapCount-1)) >> (int)tex.mipMapBias;
-	public int Size1(Texture tex) => (tex.width  >> (tex.mipmapCount-1)) << (int)tex.mipMapBias;
-	public int Tile1(Texture tex) => (int)tex.mipMapBias;
-	public int Lod(Texture tex) => (tex.mipmapCount-1);
-	public Vector2Int Size(Texture tex) => new Vector2Int(Size0(tex), Size1(tex));
-	public VertexAttributeFormat DType(Texture tex) => graphicsFormatToDType[tex.graphicsFormat];
+	public int Offset0(TexView view) => view.data.o0;
+	public int Offset1(TexView view) => view.data.o1;
+	public int Size0(TexView view) => view.data.s0;
+	public int Size1(TexView view) => view.data.s1;
+	public int Tile1(TexView view) => (int)view.data.t.mipMapBias;
+	public int Lod(TexView view) => (view.data.t.mipmapCount-1);
+	public Vector2Int Size(TexView view) => new Vector2Int(Size0(view), Size1(view));
+	public VertexAttributeFormat DType(TexView view) => graphicsFormatToDType[view.data.t.graphicsFormat];
+	public TexView Slice(Texture tex, int size0, int size1, int off0=0, int off1=0) =>
+		new TexView(tex, size0, size1, off0, off1);
+
 	public void FixSize0(Texture tex, int size0) {
 		var h = tex.height >> (tex.mipmapCount-1);
 		Debug.Assert(h % size0 == 0);

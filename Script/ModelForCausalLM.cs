@@ -53,7 +53,7 @@ public abstract class ModelForCausalLM : Module {
 	void RepetitionPenaltyLogitsProcessor(Texture input_ids, ref Texture scores, float penalty, Texture last_input_ids) {
 		var inputs_T = nn.Transpose(input_ids, 1);
 		inputs_T = BatchRelease(nn.Fusion(MarkRelease(inputs_T), @default:4*ctx.Size1(scores)*Vector4.one,
-			window:new Vector4(-max_length, ctx.Size0(last_input_ids), 0, 1), offset:last_input_ids));
+			window:(new Vector4(-max_length, ctx.Size0(last_input_ids), 0, 1), last_input_ids)));
 		var mask = nn.Fusion(scores, scale:0f);
 		BatchRelease(nn.IndexCopy((RenderTexture)mask, (MarkRelease(inputs_T), 0), null, fill:1f, axis1:true));
 		var penal = nn.Fusion(scores, func:TensorNN.Keyword.FUNC_RELU, eps:penalty*penalty, scale:1f/penalty);
@@ -64,11 +64,10 @@ public abstract class ModelForCausalLM : Module {
 		var inputs = ctx.PersistentGPUTensor("inputs", max_length, 1);
 		nn.IndexCopy(inputs, (input, 1), input);
 		if(ctx.Size0(scores) > 1)
-			scores = BatchRelease(nn.Copy(null, MarkRelease(scores),
-				size:new Vector2Int(1, ctx.Size1(scores)), inputOffset:new Vector2Int(ctx.Size0(scores)-1, 0)));
+			scores = BatchRelease(nn.Fusion(ctx.Slice(MarkRelease(scores), 1, ctx.Size1(scores), ctx.Size0(scores)-1, 0)));
 		RepetitionPenaltyLogitsProcessor(inputs, ref scores, repetition_penalty, input);
 		var gumbel = BatchRelease(nn.Gumbel(MarkRelease(scores), temperature));
-		return BatchRelease(nn.ArgMax(MarkRelease(gumbel), window:new Vector2(0, config.vocab_size)));
+		return BatchRelease(nn.ArgMax(MarkRelease(gumbel), window:(new Vector2(0, config.vocab_size), null)));
 	}
 }
 public abstract class ModelForCausalLM<T> : ModelForCausalLM where T : PretrainedConfig {
