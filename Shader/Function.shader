@@ -100,6 +100,7 @@ float4 main(uint2 pos) {
 		}
 	#endif
 
+	pos.y = pos.y%(_OutputDim.y/_ReduceDim.y) * _ReduceDim.y; // restrict y to each group
 	O = mask ? O : _Default;
 	O *= _Mul;
 	if(_MulDim.x)

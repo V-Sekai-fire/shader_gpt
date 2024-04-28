@@ -106,6 +106,7 @@ public class BasicLM : MonoBehaviour {
 		{typeof(Models.GPTNeoX), (4e-3f, 6e-3f)},
 		{typeof(Models.Llama), (4e-5f, 4e-5f)},
 		{typeof(Models.Phi), (1e-5f, 5e-5f)},
+		{typeof(Models.OpenELM), (1e-4f, 1e-4f)},
 	};
 	int Run(int positionId) {
 		var input = InputTensor(tokens, positionId);

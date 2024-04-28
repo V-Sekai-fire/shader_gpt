@@ -207,8 +207,8 @@ public class TensorNN {
 			linear:new Matrix4x4(default, default, default, new Vector4(1,0,0,0)));
 	}
 	public Texture GroupNorm(TexView input, TexView weight, TexView bias, float eps, int groups=1, bool rmsNorm=false) {
-		Debug.Assert(ctx.Size0(weight) == 1 && ctx.Size1(weight) == ctx.Size1(input));
-		Debug.Assert(rmsNorm ? !bias : (ctx.Size0(bias) == 1 && ctx.Size1(bias) == ctx.Size1(input)));
+		Debug.Assert(ctx.Size0(weight) == 1 && ctx.Size1(weight)*groups == ctx.Size1(input));
+		Debug.Assert(rmsNorm ? !bias : (ctx.Size0(bias) == 1 && ctx.Size1(bias)*groups == ctx.Size1(input)));
 		return _Normalize(input, Keyword.FUNC_GROUPNORM, reduceFunc:Keyword.REDUCE_SUMPOW, groups:groups,
 			mul:weight, add:bias, eps:eps, linear:Matrix4x4.Scale(new Vector4(1, rmsNorm?0:1, 1, 1)));
 	}
@@ -238,8 +238,14 @@ public class TensorNN {
 		mat.EnableKeyword(keyword.ToString());
 	}
 	static public Keyword ActFn(string name) {
+		if(actFnRemap.TryGetValue(name, out var name2))
+			name = name2;
 		return (Keyword)System.Enum.Parse(typeof(Keyword), $"FUNC_{name.ToUpperInvariant()}");
 	}
+	static readonly Dictionary<string,string> actFnRemap = new Dictionary<string,string>() {
+		{"swish", "silu"},
+		{"gelu_pytorch_tanh", "gelu_new"},
+	};
 
 	public enum Keyword {
 		None = 0,

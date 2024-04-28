@@ -16,7 +16,7 @@ public class LlamaConfig : PretrainedConfig {
 public class Llama : ModelForCausalLM<LlamaConfig> {
 	public Llama(TensorNN nn, TextAsset configJson): base(nn, configJson) {
 		if(config.model_type == "gemma")
-			config.hidden_act = "gelu_new"; // TODO: use hidden_activation
+			config.hidden_act = "gelu_pytorch_tanh"; // TODO: use hidden_activation
 	}
 	public override (Texture, Texture) ForCausalLM(Texture input_ids) => LlamaForCausalLM(input_ids);
 
@@ -52,8 +52,8 @@ public class Llama : ModelForCausalLM<LlamaConfig> {
 	void LlamaMLP(ref Texture hidden_states, string path) {
 		var gate = BatchRelease(nn.Linear(hidden_states, state_dict[$"{path}.gate_proj.weight"]));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.up_proj.weight"]));
-		gate = BatchRelease(nn.Fusion(MarkRelease(gate), func:TensorNN.ActFn(config.hidden_act)));
-		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), mul:MarkRelease(gate)));
+		var act = BatchRelease(nn.Fusion(MarkRelease(gate), func:TensorNN.ActFn(config.hidden_act)));
+		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), mul:MarkRelease(act)));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.down_proj.weight"]));
 	}
 	void LlamaDecoderLayer(ref Texture hidden_states, Texture input_ids, string path, float scale=1f) {

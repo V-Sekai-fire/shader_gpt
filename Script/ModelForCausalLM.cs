@@ -34,6 +34,8 @@ public abstract class ModelForCausalLM : Module {
 		case "mistral":
 		case "qwen2":
 			return new Models.Llama(nn, configJson);
+		case "openelm":
+			return new Models.OpenELM(nn, configJson);
 		case "phi":
 			return new Models.Phi(nn, configJson);
 		default:

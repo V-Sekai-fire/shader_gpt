@@ -20,19 +20,19 @@ public class GPT2 : ModelForCausalLM<GPT2Config> {
 	public override (Texture, Texture) ForCausalLM(Texture input_ids) => GPT2LMHeadModel(input_ids);
 
 	void GPT2Attention(ref Texture hidden_states, Texture input_ids, string path) {
-		var query = nn.Linear(hidden_states, state_dict[$"{path}.c_query.weight"], state_dict[$"{path}.c_query.bias"]);
-		var key   = nn.Linear(hidden_states, state_dict[$"{path}.c_key.weight"],   state_dict[$"{path}.c_key.bias"]);
-		var value = nn.Linear(hidden_states, state_dict[$"{path}.c_value.weight"], state_dict[$"{path}.c_value.bias"]);
-		ctx.Release(hidden_states);
+		var qkv = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.c_attn.weight"], state_dict[$"{path}.c_attn.bias"]));
+		var query = ctx.Slice(qkv, ctx.Size0(qkv), config.hidden_size/4);
+		var key   = ctx.Slice(qkv, ctx.Size0(qkv), config.hidden_size/4, 0, config.hidden_size/4);
+		var value = ctx.Slice(qkv, ctx.Size0(qkv), config.hidden_size/4, 0, config.hidden_size/2);
 
 		var keys   = ctx.PersistentGPUTensor($"{path}.k", max_length, ctx.Size1(key), dtype:ctx.DType(key));
 		var values = ctx.PersistentGPUTensor($"{path}.v", max_length, ctx.Size1(value), dtype:ctx.DType(value));
-		BatchRelease(nn.IndexCopy(keys,   (input_ids, 1), MarkRelease(key)));
-		BatchRelease(nn.IndexCopy(values, (input_ids, 1), MarkRelease(value)));
+		BatchRelease(nn.IndexCopy(keys,   (input_ids, 1), key));
+		BatchRelease(nn.IndexCopy(values, (input_ids, 1), value));
 
 		var window_size = config.max_position_embeddings;
 		var norm_factor = 1f / Mathf.Sqrt(config.hidden_size / config.num_attention_heads);
-		var attn_scores = BatchRelease(nn.Linear(MarkRelease(query), keys, heads:config.num_attention_heads));
+		var attn_scores = BatchRelease(nn.Linear(query, keys, heads:config.num_attention_heads)); ctx.Release(qkv);
 		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores), scale:norm_factor,
 			groups:config.num_attention_heads, window:(new Vector4(1-window_size, 1, 0, 1), input_ids)));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:config.num_attention_heads, weightT:true));

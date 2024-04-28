@@ -103,6 +103,8 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 		if hasattr(layer, "inv_freq"):
 			if hasattr(layer, "cos_cached"): # deprecated in torch 4.39
 				cos_cached, sin_cached = layer.cos_cached, layer.sin_cached
+			elif hasattr(layer, "_cached_cos"): # TODO: OpenELMRotaryEmbedding
+				cos_cached, sin_cached = layer._cached_cos[0,0], layer._cached_sin[0,0]
 			else:
 				pos_id = torch.arange(min(model.config.max_position_embeddings, max_positions),
 					dtype=torch.float32, device=model.device).unsqueeze(0)
@@ -135,13 +137,8 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 					pass # skip duplicate weights to save space
 				else:
 					state_dict[f"{name}.T"] = data.T
-			elif m := re.fullmatch(r"(.*[.]\d+[.]attn)[.]c_attn[.](weight|bias)", name):
-				view = (data.transpose(0,1) if m[2] == "weight" else data).chunk(3, dim=0)
-				state_dict[f"{m[1]}.c_query.{m[2]}"] = view[0]
-				state_dict[f"{m[1]}.c_key.{  m[2]}"] = view[1]
-				state_dict[f"{m[1]}.c_value.{m[2]}"] = view[2]
 			else:
-				if model_type == "gpt2" and re.search(r"(c_fc|c_proj)[.]weight$", name):
+				if model_type == "gpt2" and re.search(r"(c_fc|c_proj|c_attn)[.]weight$", name):
 					# Conv1D => Linear
 					state_dict[name] = data.transpose(0,1)
 				continue
@@ -181,6 +178,13 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 						state_dict[name] = 1.0 + data.float() # convert residue weight
 				continue
 			del state_dict[name]
+	elif model_type in ["openelm"]:
+		for name, data in list(state_dict.items()):
+			if name in ["transformer.token_embeddings.weight", "lm_head.weight"]:
+				state_dict[f"{name}.T"] = data.T
+			else:
+				continue
+			del state_dict[name]
 	else:
 		raise NotImplementedError(f"{model_type=}")
 
@@ -191,7 +195,7 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 		assert (re.search(r"\.weight(\.T)?$", name) and len(data.shape) == 2)\
 			or (re.search(r"\.(weight|bias)$", name) and len(data.shape) == 1)
 
-		quantizable = bool(re.search(r"(?<!rotary_emb)\.weight(\.T)?$", name))
+		quantizable = bool(re.search(r"(?<!rotary_emb|_embedding)\.weight(\.T)?$", name))
 		quantizable = quantizable and len(data.shape) == 2
 		quantizable = quantizable and quantize is not None and quantize(name, data.shape)
 
@@ -335,17 +339,20 @@ def main():
 	parser = argparse.ArgumentParser()
 	parser.add_argument('model', help='model id or path. for example: roneneldan/TinyStories-1M')
 	parser.add_argument('folder', help='save path. for example: ../Model/')
+	parser.add_argument('--tokenizer', type=str)
+	parser.add_argument('--device', type=str)
+	parser.add_argument('--trust', action='store_true')
 	parser.add_argument('--force', action='store_true')
 	parser.add_argument('--quantize', type=float)
-	parser.add_argument('--device', type=str)
+	
 	args = parser.parse_args()
 
 	folder = Path(args.folder)
 	if re.search(r"[/\\]$", args.folder):
 		folder /= Path(args.model).name
 	print(f"convert: {args.model} => {folder}")
-	model = AutoModelForCausalLM.from_pretrained(args.model, device_map=args.device or None)
-	tokenizer = AutoTokenizer.from_pretrained(args.model)
+	model = AutoModelForCausalLM.from_pretrained(args.model, device_map=args.device or None, trust_remote_code=args.trust)
+	tokenizer = AutoTokenizer.from_pretrained(args.tokenizer or args.model)
 	quantize = (lambda name, shape: np.prod(shape) >= args.quantize*1024*1024) if args.quantize else None
 	print(f"model: {type(model)}")
 	export_lm(model, folder, force_write=bool(args.force), quantize=quantize)
