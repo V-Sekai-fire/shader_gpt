@@ -42,7 +42,7 @@ public class Phi : ModelForCausalLM<PhiConfig> {
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.dense.weight"], state_dict[$"{path}.dense.bias"]));
 	}
 	Texture PhiMLP(Texture hidden_states, string path) {
-		hidden_states = BatchRelease(nn.Linear(hidden_states, state_dict[$"{path}.fc1.weight"], state_dict[$"{path}.fc1.bias"]));
+		hidden_states = nn.Linear(hidden_states, state_dict[$"{path}.fc1.weight"], state_dict[$"{path}.fc1.bias"]);
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), func:TensorNN.ActFn(config.hidden_act)));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.fc2.weight"], state_dict[$"{path}.fc2.bias"]));
 		return hidden_states;

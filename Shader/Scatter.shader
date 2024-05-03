@@ -8,7 +8,6 @@ Properties {
 	_InputTex ("_InputTex",  2D) = "black" {}
 	_IndexTex ("_IndexTex",  2D) = "black" {}
 	_Input    ("_Input",     Vector) = (0, 0, 0, 0)
-	_IndexOff ("_IndexOff",  Vector) = (0, 0, 0, 0)
 	_IndexChan("_IndexChan", Int) = 0
 	_ColorMask("_ColorMask", Int) = 15
 }
@@ -70,7 +69,8 @@ void geom(triangle GeomInput input[3], inout TriangleStream<GeomOutput> stream, 
 	}
 }
 float4 main(uint2 pos, uint payload) {
-	// torch.Tensor.index_copy_(axis, index, input)
+	// torch.index_copy with a sliced index
+	// output.index_copy_(axis, torch.select(index, 1-axis, chan), input)
 	// (axis == 1 ? output[i,index[c,j][jj]/4][index[c,j][jj]%4] : output[index[i,c/4][c%4],j][jj]) = input[i,j][jj]
 
 #ifdef AXIS_LAST

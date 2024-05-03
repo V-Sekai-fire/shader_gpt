@@ -38,6 +38,8 @@ public abstract class ModelForCausalLM : Module {
 			return new Models.OpenELM(nn, configJson);
 		case "phi":
 			return new Models.Phi(nn, configJson);
+		case "phi3":
+			return new Models.Phi3(nn, configJson);
 		default:
 			Debug.LogError($"unsupported architecture {config.model_type}");
 			return null;

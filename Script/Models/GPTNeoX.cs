@@ -17,21 +17,21 @@ public class GPTNeoX : ModelForCausalLM<GPTNeoXConfig> {
 	public override (Texture, Texture) ForCausalLM(Texture input_ids) => GPTNeoXForCausalLM(input_ids);
 
 	void GPTNeoXAttention(ref Texture hidden_states, Texture input_ids, string path) {
-		var query = nn.Linear(hidden_states, state_dict[$"{path}.query.weight"], state_dict[$"{path}.query.bias"]);
-		var key   = nn.Linear(hidden_states, state_dict[$"{path}.key.weight"],   state_dict[$"{path}.key.bias"]);
-		var value = nn.Linear(hidden_states, state_dict[$"{path}.value.weight"], state_dict[$"{path}.value.bias"]);
-		ctx.Release(hidden_states);
+		var qkv = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.query_key_value.weight"], state_dict[$"{path}.query_key_value.bias"]));
+		var q = ctx.Slice(qkv, ctx.Size0(qkv), config.hidden_size/4);
+		var k = ctx.Slice(qkv, ctx.Size0(qkv), config.hidden_size/4, 0, config.hidden_size/4);
+		var v = ctx.Slice(qkv, ctx.Size0(qkv), config.hidden_size/4, 0, config.hidden_size/2);
 
 		state_dict.TryGetValue(Regex.Replace($"{path}.rotary_emb.weight", @"[.]\d+[.]", ".0."), out var rotary_emb);
 		var rotary = nn.IndexSelect(rotary_emb ?? state_dict[$"{path}.rotary_emb.weight"], (input_ids, 1));
-		query = BatchRelease(nn.Rotary(MarkRelease(query), rotary, groups:config.num_attention_heads));
-		key   = BatchRelease(nn.Rotary(MarkRelease(key),   rotary, groups:config.num_attention_heads));
+		var query = nn.Rotary(q, rotary, groups:config.num_attention_heads);
+		var key   = nn.Rotary(k, rotary, groups:config.num_attention_heads);
 		ctx.Release(rotary);
 
 		var keys   = ctx.PersistentGPUTensor($"{path}.k", max_length, ctx.Size1(key), dtype:ctx.DType(key));
-		var values = ctx.PersistentGPUTensor($"{path}.v", max_length, ctx.Size1(value), dtype:ctx.DType(value));
+		var values = ctx.PersistentGPUTensor($"{path}.v", max_length, ctx.Size1(v), dtype:ctx.DType(v));
 		BatchRelease(nn.IndexCopy(keys,   (input_ids, 1), MarkRelease(key)));
-		BatchRelease(nn.IndexCopy(values, (input_ids, 1), MarkRelease(value)));
+		BatchRelease(nn.IndexCopy(values, (input_ids, 1), (MarkRelease(qkv), v).Item2));
 
 		var window_size = config.max_position_embeddings;
 		var norm_factor = 1f / Mathf.Sqrt(config.hidden_size / config.num_attention_heads);

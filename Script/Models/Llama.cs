@@ -50,7 +50,7 @@ public class Llama : ModelForCausalLM<LlamaConfig> {
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.o_proj.weight"], o_bias));
 	}
 	void LlamaMLP(ref Texture hidden_states, string path) {
-		var gate = BatchRelease(nn.Linear(hidden_states, state_dict[$"{path}.gate_proj.weight"]));
+		var gate = nn.Linear(hidden_states, state_dict[$"{path}.gate_proj.weight"]);
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.up_proj.weight"]));
 		var act = BatchRelease(nn.Fusion(MarkRelease(gate), func:TensorNN.ActFn(config.hidden_act)));
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), mul:MarkRelease(act)));

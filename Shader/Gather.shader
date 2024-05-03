@@ -24,7 +24,8 @@ DEFINE_TEXTURE2D(_QuantTex); uint4 _QuantDim;
 uniform uint _IndexChan;
 
 float4 main(uint2 pos) {
-	// torch.index_select(input, axis, index)
+	// torch.index_select with a sliced index
+	// output == torch.index_select(input, axis, torch.select(index, 1-axis, chan))
 	// output[i,j][jj] = axis == 1 ? input[i,index[c,j][jj]/4][index[c,j][jj]%4]
 	// 	: transpose ? input[j*4+jj,index[i,c]/4][index[i,c]%4] : input[index[i,c],j][jj]
 

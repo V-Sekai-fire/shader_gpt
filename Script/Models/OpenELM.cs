@@ -61,8 +61,7 @@ public class OpenELM : ModelForCausalLM<OpenELMConfig> {
 		var y_1 = ctx.Slice(y_12, ctx.Size0(y_12), ctx.Size1(y_12)/2);
 		var y_2 = ctx.Slice(y_12, ctx.Size0(y_12), ctx.Size1(y_12)/2, 0, ctx.Size1(y_12)/2);
 		var act = nn.Fusion(y_1, func:TensorNN.ActFn(config.hidden_act));
-		MarkRelease(y_12);
-		hidden_states = BatchRelease(nn.Fusion(y_2, mul:MarkRelease(act)));
+		hidden_states = BatchRelease(nn.Fusion((MarkRelease(y_12), y_2).Item2, mul:MarkRelease(act)));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.proj_2.weight"]));
 	}
 	void OpenELMDecoderLayer(ref Texture hidden_states, Texture input_ids, string path, int layer_id) {

@@ -25,7 +25,8 @@ DEFINE_TEXTURE2D(_QuantTex);  uint4 _QuantDim;
 DEFINE_TEXTURE2D(_BiasTex);   uint4 _BiasDim;
 
 float4 main(uint2 pos, uint threadId, uint groupSize) {
-	// torch.nn.functional.linear(input, weight, bias) with multi-head support
+	// torch.nn.functional.linear with multi-head support
+	// output == bias + torch.einsum("ihdk,khj->ihdj" if transpose else "ihdk,jhk->ihdj", input, weight)
 	// output[i,h*J+j][jj] += input[i,h*K+k][kk] * (transpose ? weight[k*4+kk,h/D*J+j][jj] : weight[j*4+jj,h/D*K+k][kk])
 
 	#ifdef WEIGHT_TRANSPOSED

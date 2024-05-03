@@ -50,10 +50,22 @@ def export_custom_int8(data, asym=True, group_size=4, *, estep=2, exact=False):
 	expo = expo.reshape(expo.shape[0], -1)[:, :shape1]
 	return mant, expo.astype(np.int8).astype(np.uint8)
 
+def disable_exllama():
+	from transformers import GPTQConfig
+	post_init = GPTQConfig.post_init
+	GPTQConfig.post_init = lambda self: setattr(self, "use_exllama", False) or post_init(self)
+
+def unpack_gptq(layer):
+	bias = layer.bias
+	layer.bias = None
+	weight = layer(torch.eye(layer.infeatures, dtype=layer.scales.dtype, device=layer.scales.device)).transpose(1,0)
+	layer.bias = bias
+	return weight
+
 def export_gptq(layer):
 	assert layer.group_size % 4 == 0, f"group_size {layer.group_size} should be a multiple of 4"
 	assert 8 % layer.bits == 0, f"bits {layer.bits} should be a divisor of 8"
-	assert str(type(layer)).find("exllama") < 0, "exllama backend is not supported. please set disable_exllama=True in quantization config"
+	assert str(type(layer)).find("exllama") < 0, "exllama backend is not supported"
 	wf = torch.tensor(list(range(0, 32, layer.bits)), dtype=torch.int32).unsqueeze(0).to(layer.qweight.device)
 
 	scales = layer.scales
@@ -97,6 +109,8 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 		json.dump(model.config.to_dict(), f, indent=2, sort_keys=True)
 
 	gptq_layers = {}
+	unpack = lambda x: unpack_gptq(gptq_layers[id(x)]) if id(x) in gptq_layers else x
+
 	state_dict = dict(model.state_dict())
 	for name, layer in model.named_modules():
 		# RotaryEmbedding => Linear
@@ -120,9 +134,7 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 				state_dict[f"{name}.weight"] = weight
 		# QuantLinear => Linear
 		elif hasattr(layer, "qweight"):
-			layer.bias, bias = None, layer.bias
-			weight = layer(torch.eye(layer.infeatures, dtype=torch.float16, device=model.device)).transpose(1,0)
-			layer.bias = bias
+			weight = torch.zeros((layer.outfeatures, layer.infeatures), dtype=layer.scales.dtype, device="meta")
 			gptq_layers[id(weight)] = layer
 			state_dict[f"{name}.weight"] = weight
 			for key in ("qweight", "qzeros", "scales", "g_idx"):
@@ -133,39 +145,37 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 	if model_type in ["gpt2", "gpt_neo"]:
 		for name, data in list(state_dict.items()):
 			if name in ["transformer.wte.weight", "transformer.wpe.weight", "lm_head.weight"]:
-				if name == "lm_head.weight" and torch.allclose(data, model.state_dict()["transformer.wte.weight"]):
+				if name == "lm_head.weight" and torch.allclose(unpack(data), model.state_dict()["transformer.wte.weight"]):
 					pass # skip duplicate weights to save space
 				else:
-					state_dict[f"{name}.T"] = data.T
+					state_dict[f"{name}.T"] = unpack(data).T
 			else:
 				if model_type == "gpt2" and re.search(r"(c_fc|c_proj|c_attn)[.]weight$", name):
 					# Conv1D => Linear
-					state_dict[name] = data.transpose(0,1)
+					state_dict[name] = unpack(data).transpose(0,1)
 				continue
 			del state_dict[name]
 	elif model_type == "gpt_neox":
 		for name, data in list(state_dict.items()):
 			if name in ["gpt_neox.embed_in.weight", "embed_out.weight"]:
-				state_dict[f"{name}.T"] = data.T
-			elif m := re.fullmatch(r"(.*[.]\d+[.]attention)[.]query_key_value[.](weight|bias)", name):
-				view = data.view(model.config.num_attention_heads, 3, -1)
-				state_dict[f"{m[1]}.query.{m[2]}"] = view[:, 0].reshape(model.config.hidden_size, *data.shape[1:])
-				state_dict[f"{m[1]}.key.{  m[2]}"] = view[:, 1].reshape(model.config.hidden_size, *data.shape[1:])
-				state_dict[f"{m[1]}.value.{m[2]}"] = view[:, 2].reshape(model.config.hidden_size, *data.shape[1:])
+				state_dict[f"{name}.T"] = unpack(data).T
 			else:
+				if m := re.fullmatch(r"(.*[.]\d+[.]attention)[.]query_key_value[.](weight|bias)", name):
+					state_dict[name] = unpack(data).view(model.config.num_attention_heads, 3, -1).\
+						transpose(0,1).reshape_as(data)
 				continue
 			del state_dict[name]
-	elif model_type in ["phi", "llama", "mistral", "qwen2", "gemma"]:
+	elif model_type in ["gemma", "llama", "mistral", "phi", "phi3", "qwen2"]:
 		for name, data in list(state_dict.items()):
 			if name in ["model.embed_tokens.weight", "lm_head.weight"]:
-				state_dict[f"{name}.T"] = data.T
+				state_dict[f"{name}.T"] = unpack(data).T
 			else:
 				if m := re.fullmatch(r"(.*[.]\d+[.]self_attn)[.]([qkv]_proj[.](weight|bias)|o_proj[.]weight)", name):
 					head_dim = getattr(model.get_submodule(m[1]), "head_dim", 0)
 					if head_dim%4 != 0: # pad head_dim and half rotary dim
 						half_dim = model.get_submodule(m[1]).rotary_emb.dim//2
-						view = data.view(data.shape[0], -1, head_dim, 1) if m[2].startswith("o_proj")\
-							else data.view(1, -1, head_dim, data.numel() // data.shape[0])
+						view = unpack(data).view(data.shape[0], -1, head_dim, 1) if m[2].startswith("o_proj")\
+							else unpack(data).view(1, -1, head_dim, data.numel() // data.shape[0])
 						view = torch.cat((
 							torch.nn.functional.pad(view[:, :, 0*half_dim:1*half_dim], (0,0, 0,-half_dim%2)),
 							torch.nn.functional.pad(view[:, :, 1*half_dim:2*half_dim], (0,0, 0,-half_dim%2)),
@@ -175,13 +185,13 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 										else view.view(-1, *data.shape[1:])
 				elif m := re.fullmatch(r".*(_layernorm|\bnorm)[.]weight", name):
 					if model_type == "gemma":
-						state_dict[name] = 1.0 + data.float() # convert residue weight
+						state_dict[name] = 1.0 + unpack(data).float() # convert residue weight
 				continue
 			del state_dict[name]
 	elif model_type in ["openelm"]:
 		for name, data in list(state_dict.items()):
 			if name in ["transformer.token_embeddings.weight", "lm_head.weight"]:
-				state_dict[f"{name}.T"] = data.T
+				state_dict[f"{name}.T"] = unpack(data).T
 			else:
 				continue
 			del state_dict[name]
@@ -191,7 +201,7 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 	for name in list(state_dict.keys()):
 		# reduce memory use
 		data = state_dict.pop(name)
-		print(f"\t{name}\t{tuple(data.shape)}")
+		print(f"\t{name}\t{tuple(data.shape)} {data.dtype}")
 		assert (re.search(r"\.weight(\.T)?$", name) and len(data.shape) == 2)\
 			or (re.search(r"\.(weight|bias)$", name) and len(data.shape) == 1)
 
@@ -351,6 +361,7 @@ def main():
 	if re.search(r"[/\\]$", args.folder):
 		folder /= Path(args.model).name
 	print(f"convert: {args.model} => {folder}")
+	disable_exllama()
 	model = AutoModelForCausalLM.from_pretrained(args.model, device_map=args.device or None, trust_remote_code=args.trust)
 	tokenizer = AutoTokenizer.from_pretrained(args.tokenizer or args.model)
 	quantize = (lambda name, shape: np.prod(shape) >= args.quantize*1024*1024) if args.quantize else None
@@ -360,4 +371,5 @@ def main():
 	export_testcase(model, tokenizer, folder, force_write=bool(args.force))
 
 if __name__ == '__main__':
-	main()
+	with torch.no_grad():
+		main()
