@@ -182,6 +182,16 @@ public class TensorNN {
 		ctx.Blit(rt, mat);
 		return output;
 	}
+	public Texture Flip(TexView input) {
+		var output = ctx.GPUTensor(ctx.Size0(input), ctx.Size1(input), dtype:ctx.DType(input));
+		var mat = ctx.Operator(kernels["Function"]);
+		SetTensor(mat, "_Output", output);
+		SetTensor(mat, "_Input",  input);
+		mat.SetTextureOffset("_InputTex", new Vector2(ctx.Size0(input)-1+ctx.Offset0(input), ctx.Offset1(input)));
+		mat.SetTextureScale ("_InputTex", new Vector2(-1, 1));
+		ctx.Blit(output, mat);
+		return output;
+	}
 	public Texture Rotary(TexView input, TexView rotary, int groups=1) {
 		Debug.Assert(ctx.Size1(input) % groups == 0);
 		var output = ctx.GPUTensor(ctx.Size0(input), ctx.Size1(input), dtype:ctx.DType(input));
@@ -224,10 +234,6 @@ public class TensorNN {
 		mat.SetTexture($"{name}Tex", (Texture)view);
 		mat.SetVector($"{name}Dim",  new Vector4(ctx.Size0(view), ctx.Size1(view), ctx.Tile1(view), ctx.Lod(view)));
 		mat.SetTextureOffset($"{name}Tex", new Vector2(ctx.Offset0(view), ctx.Offset1(view)));
-	}
-	void SetTensor(Material mat, string name, Texture tex, Vector2Int size) {
-		mat.SetTexture($"{name}Tex", tex);
-		mat.SetVector($"{name}Dim",  new Vector4(size.x, size.y, ctx.Tile1(tex), ctx.Lod(tex)));
 	}
 	void SetTensorQuant(Material mat, string name, Texture tex) {
 		SetTensor(mat, name, tex);

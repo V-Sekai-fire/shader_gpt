@@ -1,26 +1,24 @@
 using UnityEngine;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace ShaderGPT {
 public abstract class Module {
-	protected Dictionary<string, Texture> state_dict;
 	protected TensorNN nn;
-	protected TensorContext ctx {
-		get => nn.ctx;
-		set { nn.ctx = value; }
-	}
+	protected TensorContext ctx => nn.ctx;
+	public Dictionary<string, Texture> state_dict;
 
 	public Module(TensorNN nn) {
 		this.nn = nn;
+		this.state_dict = new();
 	}
-	public void LoadStateDict(Texture[] textures) {
-		state_dict = textures.ToDictionary(x => x.name, x => x);
-		foreach(var pair in state_dict) {
-			if(state_dict.TryGetValue(pair.Key+".q8", out var quantizer))
-				nn.quantizers[pair.Value] = quantizer;
-			if(state_dict.TryGetValue(pair.Key+".q8.idx", out var permuter))
-				nn.permuters[pair.Value] = permuter;
+	public void LoadStateDict(IEnumerable<Texture> textures) {
+		foreach(var tex in textures)
+			state_dict[tex.name] = tex;
+		foreach(var tex in textures) {
+			if(state_dict.TryGetValue(tex.name+".q8", out var quantizer))
+				nn.quantizers[tex] = quantizer;
+			if(state_dict.TryGetValue(tex.name+".q8.idx", out var permuter))
+				nn.permuters[tex] = permuter;
 		}
 	}
 
@@ -43,5 +41,24 @@ public abstract class Module {
 		if(state_dict.TryGetValue(name+".q8.idx", out var permuter))
 			ctx.FixSize0(permuter, 1);
 	}
+}
+[System.Serializable]
+public class PretrainedConfig {
+	public string model_type;
+	public int vocab_size;
+}
+public abstract class PretrainedConfig<S> : PretrainedConfig where S : PretrainedConfig<S> {
+	public static S FromPretrained(TextAsset configJson) {
+		return JsonUtility.FromJson<S>(configJson.text);
+	}
+}
+public abstract class PretrainedModel<T> : Module, PretrainedModel where T : PretrainedConfig<T> {
+	public T config;
+	public PretrainedModel(TensorNN nn, T config): base(nn) {
+		this.config = config;
+	}
+}
+public interface PretrainedModel {
+	public void LoadStateDict(IEnumerable<Texture> textures);
 }
 }

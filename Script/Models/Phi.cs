@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace ShaderGPT.Models {
 [System.Serializable]
-public class PhiConfig : PretrainedConfig {
+public class PhiConfig : PretrainedConfig<PhiConfig> {
 	public int max_position_embeddings;
 	public int hidden_size;
 	public int num_hidden_layers;
@@ -13,10 +13,10 @@ public class PhiConfig : PretrainedConfig {
 	public float layer_norm_eps;
 }
 public class Phi : ModelForCausalLM<PhiConfig> {
-	public Phi(TensorNN nn, TextAsset configJson): base(nn, configJson) {}
+	public Phi(TensorNN nn, PhiConfig config): base(nn, config) {}
 	public override (Texture, Texture) ForCausalLM(Texture input_ids) => PhiForCausalLM(input_ids);
 
-	void PhiAttention(ref Texture hidden_states, Texture input_ids, string path) {
+	void PhiAttention(string path, ref Texture hidden_states, Texture input_ids) {
 		var query = nn.Linear(hidden_states, state_dict[$"{path}.q_proj.weight"], state_dict[$"{path}.q_proj.bias"]);
 		var key   = nn.Linear(hidden_states, state_dict[$"{path}.k_proj.weight"], state_dict[$"{path}.k_proj.bias"]);
 		var value = nn.Linear(hidden_states, state_dict[$"{path}.v_proj.weight"], state_dict[$"{path}.v_proj.bias"]);
@@ -41,28 +41,28 @@ public class Phi : ModelForCausalLM<PhiConfig> {
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:config.num_attention_heads, weightHeads:config.num_key_value_heads, weightT:true));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.dense.weight"], state_dict[$"{path}.dense.bias"]));
 	}
-	Texture PhiMLP(Texture hidden_states, string path) {
+	Texture PhiMLP(string path, Texture hidden_states) {
 		hidden_states = nn.Linear(hidden_states, state_dict[$"{path}.fc1.weight"], state_dict[$"{path}.fc1.bias"]);
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), func:TensorNN.ActFn(config.hidden_act)));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.fc2.weight"], state_dict[$"{path}.fc2.bias"]));
 		return hidden_states;
 	}
-	void PhiDecoderLayer(ref Texture hidden_states, Texture input_ids, string path) {
+	void PhiDecoderLayer(string path, ref Texture hidden_states, Texture input_ids) {
 		var attn_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.input_layernorm.weight"], state_dict[$"{path}.input_layernorm.bias"], config.layer_norm_eps);
-		var mlp_states = PhiMLP(attn_states, path:$"{path}.mlp");
-		PhiAttention(ref attn_states, input_ids, path:$"{path}.self_attn");
+		var mlp_states = PhiMLP($"{path}.mlp", attn_states);
+		PhiAttention($"{path}.self_attn", ref attn_states, input_ids);
 		var sum = BatchRelease(nn.Fusion(MarkRelease(attn_states), add:MarkRelease(mlp_states)));
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(sum)));
 	}
-	Texture PhiModel(Texture input_ids, string path) {
+	Texture PhiModel(string path, Texture input_ids) {
 		var hidden_states = nn.IndexSelect(state_dict[$"{path}.embed_tokens.weight.T"], (input_ids, 0), inputT:true);
 		for(int i=0; i<config.num_hidden_layers; i++)
-			PhiDecoderLayer(ref hidden_states, input_ids, path:$"{path}.layers.{i}");
+			PhiDecoderLayer($"{path}.layers.{i}", ref hidden_states, input_ids);
 		hidden_states = BatchRelease(nn.GroupNorm(MarkRelease(hidden_states), state_dict[$"{path}.final_layernorm.weight"], state_dict[$"{path}.final_layernorm.bias"], config.layer_norm_eps));
 		return hidden_states;
 	}
 	(Texture, Texture) PhiForCausalLM(Texture input_ids) {
-		var hidden_states = PhiModel(input_ids, path:"model");
+		var hidden_states = PhiModel("model", input_ids);
 		var logits = nn.Linear(hidden_states, state_dict["lm_head.weight.T"], state_dict["lm_head.bias"], weightT:true);
 		return (hidden_states, logits);
 	}

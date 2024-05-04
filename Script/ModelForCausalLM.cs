@@ -2,54 +2,18 @@ using UnityEngine;
 
 namespace ShaderGPT {
 [System.Serializable]
-public class PretrainedConfig {
-	public string model_type;
-	public int vocab_size;
-}
-[System.Serializable]
 public class GenerationConfig {
 	public int max_length = 2048;
 	public bool do_sample = false;
 	public float temperature = 1f;
 	public float repetition_penalty = 1f;
 }
-public abstract class ModelForCausalLM : Module {
-	public PretrainedConfig config => _config;
-	public GenerationConfig generation_config;
-	public ModelForCausalLM(TensorNN nn): base(nn) {}
+public abstract class ModelForCausalLM<T> : PretrainedModel<T>, ModelForCausalLM where T : PretrainedConfig<T> {
+	public GenerationConfig generation_config {get;set;}
+	public ModelForCausalLM(TensorNN nn, T config): base(nn, config) {
+		generation_config = new GenerationConfig(); // TODO: parse config
+	}
 	public abstract (Texture, Texture) ForCausalLM(Texture input_ids);
-	protected abstract PretrainedConfig _config { get; }
-
-	static ModelForCausalLM FromPretrained(TensorNN nn, TextAsset configJson) {
-		var config = JsonUtility.FromJson<PretrainedConfig>(configJson.text);
-		switch(config.model_type) {
-		case "gpt2":
-			return new Models.GPT2(nn, configJson);
-		case "gpt_neo":
-			return new Models.GPTNeo(nn, configJson);
-		case "gpt_neox":
-			return new Models.GPTNeoX(nn, configJson);
-		case "gemma":
-		case "llama":
-		case "mistral":
-		case "qwen2":
-			return new Models.Llama(nn, configJson);
-		case "openelm":
-			return new Models.OpenELM(nn, configJson);
-		case "phi":
-			return new Models.Phi(nn, configJson);
-		case "phi3":
-			return new Models.Phi3(nn, configJson);
-		default:
-			Debug.LogError($"unsupported architecture {config.model_type}");
-			return null;
-		}
-	}
-	public static ModelForCausalLM FromPretrained(TensorNN nn, TextAsset configJson, Texture[] textures) {
-		var model = FromPretrained(nn, configJson);
-		model.LoadStateDict(textures);
-		return model;
-	}
 
 	protected int max_length => generation_config.max_length;
 	private float temperature => generation_config.do_sample ? generation_config.temperature : 0f;
@@ -74,12 +38,39 @@ public abstract class ModelForCausalLM : Module {
 		return BatchRelease(nn.ArgMax(MarkRelease(gumbel), window:(new Vector2(0, config.vocab_size), null)));
 	}
 }
-public abstract class ModelForCausalLM<T> : ModelForCausalLM where T : PretrainedConfig {
-	public new T config;
-	public ModelForCausalLM(TensorNN nn, TextAsset configJson): base(nn) {
-		config = JsonUtility.FromJson<T>(configJson.text);
-		generation_config = new GenerationConfig(); // TODO: parse config
+public interface ModelForCausalLM : PretrainedModel {
+	public GenerationConfig generation_config {get;set;}
+	public (Texture, Texture) ForCausalLM(Texture input_ids);
+	public Texture Generate(Texture input, ref Texture scores);
+
+	public static ModelForCausalLM FromPretrained(TensorNN nn, TextAsset configJson) {
+		var config = JsonUtility.FromJson<PretrainedConfig>(configJson.text);
+		switch(config.model_type) {
+		case "gpt2":
+			return new Models.GPT2(nn, Models.GPT2Config.FromPretrained(configJson));
+		case "gpt_neo":
+			return new Models.GPTNeo(nn, Models.GPTNeoConfig.FromPretrained(configJson));
+		case "gpt_neox":
+			return new Models.GPTNeoX(nn, Models.GPTNeoXConfig.FromPretrained(configJson));
+		case "gemma":
+		case "llama":
+		case "mistral":
+		case "qwen2":
+			return new Models.Llama(nn, Models.LlamaConfig.FromPretrained(configJson));
+		case "openelm":
+			return new Models.OpenELM(nn, Models.OpenELMConfig.FromPretrained(configJson));
+		case "phi":
+			return new Models.Phi(nn, Models.PhiConfig.FromPretrained(configJson));
+		case "phi3":
+			return new Models.Phi3(nn, Models.Phi3Config.FromPretrained(configJson));
+		default:
+			throw new System.NotSupportedException($"unsupported architecture \"{config.model_type}\"");
+		}
 	}
-	protected override PretrainedConfig _config => config;
+	public static ModelForCausalLM FromPretrained(TensorNN nn, TextAsset configJson, Texture[] textures) {
+		var model = FromPretrained(nn, configJson);
+		model.LoadStateDict(textures);
+		return model;
+	}
 }
 }

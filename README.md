@@ -22,7 +22,8 @@ The following architectures are supported:
 [Llama2](https://huggingface.co/docs/transformers/main/en/model_doc/llama2),
 [Mistral](https://huggingface.co/docs/transformers/main/en/model_doc/mistral),
 [Qwen2](https://huggingface.co/docs/transformers/main/en/model_doc/qwen2),
-[Gemma](https://huggingface.co/docs/transformers/main/en/model_doc/gemma)
+[Gemma](https://huggingface.co/docs/transformers/main/en/model_doc/gemma),
+Phi3 (experimental), OpenELM (experimental)
 
 The following quantizations are supported:
 
@@ -38,6 +39,8 @@ The following models are tested:
 * [TinyLlama-1.1B-Chat-v1.0](https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0) (Llama2)
 * [phi-1_5](https://huggingface.co/microsoft/phi-1_5) (Phi)
 * [gemma-2b-it](https://huggingface.co/google/gemma-2b-it) (Gemma)
+* [OpenELM-270M-Instruct](https://huggingface.co/apple/OpenELM-270M-Instruct) (OpenELM)
+* [Phi-3-mini-4k-instruct](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct) (Phi3)
 
 ## Import a model
 

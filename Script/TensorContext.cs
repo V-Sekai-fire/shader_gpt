@@ -158,7 +158,7 @@ public class TensorContext {
 			var data = GetData(tex);
 			DebugTensor(data, Size0(tex), Size1(tex)*4, full);
 		} else
-			Debug.LogError($"unsupported texture type {input}");
+			throw new System.ArgumentException("unsupported texture type", nameof(input));
 	}
 	void DebugTensor(NativeArray<float> data, int nrow, int ncol, bool full) {
 		var sb = new System.Text.StringBuilder();

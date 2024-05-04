@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace ShaderGPT.Models {
 [System.Serializable]
-public class GPTNeoXConfig : PretrainedConfig {
+public class GPTNeoXConfig : PretrainedConfig<GPTNeoXConfig> {
 	public int max_position_embeddings;
 	public int hidden_size;
 	public int num_hidden_layers;
@@ -13,10 +13,10 @@ public class GPTNeoXConfig : PretrainedConfig {
 	public bool use_parallel_residual;
 }
 public class GPTNeoX : ModelForCausalLM<GPTNeoXConfig> {
-	public GPTNeoX(TensorNN nn, TextAsset configJson): base(nn, configJson) {}
+	public GPTNeoX(TensorNN nn, GPTNeoXConfig config): base(nn, config) {}
 	public override (Texture, Texture) ForCausalLM(Texture input_ids) => GPTNeoXForCausalLM(input_ids);
 
-	void GPTNeoXAttention(ref Texture hidden_states, Texture input_ids, string path) {
+	void GPTNeoXAttention(string path, ref Texture hidden_states, Texture input_ids) {
 		var qkv = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.query_key_value.weight"], state_dict[$"{path}.query_key_value.bias"]));
 		var q = ctx.Slice(qkv, ctx.Size0(qkv), config.hidden_size/4);
 		var k = ctx.Slice(qkv, ctx.Size0(qkv), config.hidden_size/4, 0, config.hidden_size/4);
@@ -41,29 +41,29 @@ public class GPTNeoX : ModelForCausalLM<GPTNeoXConfig> {
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:config.num_attention_heads, weightT:true));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.dense.weight"], state_dict[$"{path}.dense.bias"]));
 	}
-	void GPTNeoXMLP(ref Texture hidden_states, string path) {
+	void GPTNeoXMLP(string path, ref Texture hidden_states) {
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.dense_h_to_4h.weight"], state_dict[$"{path}.dense_h_to_4h.bias"]));
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), func:TensorNN.ActFn(config.hidden_act)));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.dense_4h_to_h.weight"], state_dict[$"{path}.dense_4h_to_h.bias"]));
 	}
-	void GPTNeoXLayer(ref Texture hidden_states, Texture input_ids, string path) {
+	void GPTNeoXLayer(string path, ref Texture hidden_states, Texture input_ids) {
 		Debug.Assert(config.use_parallel_residual, "only use_parallel_residual=true is implemented");
 		var attn_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.input_layernorm.weight"], state_dict[$"{path}.input_layernorm.bias"], config.layer_norm_eps);
-		GPTNeoXAttention(ref attn_states, input_ids, path:$"{path}.attention");
+		GPTNeoXAttention($"{path}.attention", ref attn_states, input_ids);
 		var mlp_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.post_attention_layernorm.weight"], state_dict[$"{path}.post_attention_layernorm.bias"], config.layer_norm_eps);
-		GPTNeoXMLP(ref mlp_states, path:$"{path}.mlp");
+		GPTNeoXMLP($"{path}.mlp", ref mlp_states);
 		var sum = BatchRelease(nn.Fusion(MarkRelease(attn_states), add:MarkRelease(mlp_states)));
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(sum)));
 	}
-	Texture GPTNeoXModel(Texture input_ids, string path) {
+	Texture GPTNeoXModel(string path, Texture input_ids) {
 		var hidden_states = nn.IndexSelect(state_dict[$"{path}.embed_in.weight.T"], (input_ids, 0), inputT:true);
 		for(int i=0; i<config.num_hidden_layers; i++)
-			GPTNeoXLayer(ref hidden_states, input_ids, path:$"{path}.layers.{i}");
+			GPTNeoXLayer($"{path}.layers.{i}", ref hidden_states, input_ids);
 		hidden_states = BatchRelease(nn.GroupNorm(MarkRelease(hidden_states), state_dict[$"{path}.final_layer_norm.weight"], state_dict[$"{path}.final_layer_norm.bias"], config.layer_norm_eps));
 		return hidden_states;
 	}
 	(Texture, Texture) GPTNeoXForCausalLM(Texture input_ids) {
-		var hidden_states = GPTNeoXModel(input_ids, path:"gpt_neox");
+		var hidden_states = GPTNeoXModel("gpt_neox", input_ids);
 		var logits = nn.Linear(hidden_states, state_dict["embed_out.weight.T"], weightT:true);
 		return (hidden_states, logits);
 	}

@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace ShaderGPT.Models {
 [System.Serializable]
-public class OpenELMConfig : PretrainedConfig {
+public class OpenELMConfig : PretrainedConfig<OpenELMConfig> {
 	public int max_context_length;
 	public int model_dim;
 	public int num_transformer_layers;
@@ -20,10 +20,10 @@ public class OpenELMConfig : PretrainedConfig {
 	public float rms_norm_eps => 1e-6f; // OpenELMRMSNorm default
 }
 public class OpenELM : ModelForCausalLM<OpenELMConfig> {
-	public OpenELM(TensorNN nn, TextAsset configJson): base(nn, configJson) {}
+	public OpenELM(TensorNN nn, OpenELMConfig config): base(nn, config) {}
 	public override (Texture, Texture) ForCausalLM(Texture input_ids) => OpenELMForCausalLM(input_ids);
 
-	void OpenELMMultiHeadCausalAttention(ref Texture hidden_states, Texture input_ids, string path, int layer_id) {
+	void OpenELMMultiHeadCausalAttention(string path, ref Texture hidden_states, Texture input_ids, int layer_id) {
 		var head_dim = config.head_dim;
 		var num_attention_heads = config.num_query_heads[layer_id];
 		var num_key_value_heads = config.num_kv_heads[layer_id];
@@ -56,7 +56,7 @@ public class OpenELM : ModelForCausalLM<OpenELMConfig> {
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:num_attention_heads, weightHeads:num_key_value_heads, weightT:true));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.out_proj.weight"]));
 	}
-	void OpenELMFeedForwardNetwork(ref Texture hidden_states, string path) {
+	void OpenELMFeedForwardNetwork(string path, ref Texture hidden_states) {
 		var y_12 = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.proj_1.weight"]));
 		var y_1 = ctx.Slice(y_12, ctx.Size0(y_12), ctx.Size1(y_12)/2);
 		var y_2 = ctx.Slice(y_12, ctx.Size0(y_12), ctx.Size1(y_12)/2, 0, ctx.Size1(y_12)/2);
@@ -64,23 +64,23 @@ public class OpenELM : ModelForCausalLM<OpenELMConfig> {
 		hidden_states = BatchRelease(nn.Fusion((MarkRelease(y_12), y_2).Item2, mul:MarkRelease(act)));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.proj_2.weight"]));
 	}
-	void OpenELMDecoderLayer(ref Texture hidden_states, Texture input_ids, string path, int layer_id) {
+	void OpenELMDecoderLayer(string path, ref Texture hidden_states, Texture input_ids, int layer_id) {
 		var attn_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.attn_norm.weight"], null, config.rms_norm_eps, rmsNorm:true);
-		OpenELMMultiHeadCausalAttention(ref attn_states, input_ids, path:$"{path}.attn", layer_id:layer_id);
+		OpenELMMultiHeadCausalAttention($"{path}.attn", ref attn_states, input_ids, layer_id:layer_id);
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(attn_states)));
 		var mlp_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.ffn_norm.weight"], null, config.rms_norm_eps, rmsNorm:true);
-		OpenELMFeedForwardNetwork(ref mlp_states, path:$"{path}.ffn");
+		OpenELMFeedForwardNetwork($"{path}.ffn", ref mlp_states);
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(mlp_states)));
 	}
-	Texture OpenELMModel(Texture input_ids, string path) {
+	Texture OpenELMModel(string path, Texture input_ids) {
 		var hidden_states = nn.IndexSelect(state_dict[$"{path}.token_embeddings.weight.T"], (input_ids, 0), inputT:true);
 		for(int i=0; i<config.num_hidden_layers; i++)
-			OpenELMDecoderLayer(ref hidden_states, input_ids, path:$"{path}.layers.{i}", layer_id:i);
+			OpenELMDecoderLayer($"{path}.layers.{i}", ref hidden_states, input_ids, layer_id:i);
 		hidden_states = BatchRelease(nn.GroupNorm(MarkRelease(hidden_states), state_dict[$"{path}.norm.weight"], null, config.rms_norm_eps, rmsNorm:true));
 		return hidden_states;
 	}
 	(Texture, Texture) OpenELMForCausalLM(Texture input_ids) {
-		var hidden_states = OpenELMModel(input_ids, path:"transformer");
+		var hidden_states = OpenELMModel("transformer", input_ids);
 		state_dict.TryGetValue("lm_head.weight.T", out var lm_head);
 		var logits = nn.Linear(hidden_states, lm_head ?? state_dict["transformer.token_embeddings.weight.T"], weightT:true);
 		return (hidden_states, logits);
