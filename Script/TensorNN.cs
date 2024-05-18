@@ -65,8 +65,8 @@ public class TensorNN {
 		var odim =  weightT ? ctx.Size1(weight)/weightHeads : (ctx.Size0(weight)+3)/4;
 		Debug.Assert(ctx.Size1(input) == heads*idim && ctx.Size1(weight)%weightHeads == 0 && heads%weightHeads == 0);
 		Debug.Assert(!bias || (ctx.Size0(bias) == 1 && ctx.Size1(bias) == heads*odim));
-		var output = ctx.GPUTensor(ctx.Size0(input), heads*odim, dtype:ctx.DType(input),
-			lod:linearLod, autoGenMips:(ctx.Lod(input)+ctx.Lod(weight) > 0)); // resolve mips if any input has mips
+		var output = ctx.GPUTensor(ctx.Size0(input), heads*odim, dtype:ctx.DType(input), lod:-1,
+			autoGenMips:(ctx.Lod(input)+ctx.Lod(weight) > 0)); // resolve mips if any input has mips
 		var mat = ctx.Operator(kernels["Linear"]);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
@@ -173,10 +173,13 @@ public class TensorNN {
 		ctx.Blit(output, mat);
 		return output;
 	}
-	public TexView Copy(TexView output, TexView input) {
-		Debug.Assert(ctx.Size(output) == ctx.Size(input));
+	public TexView Copy(TexView output, TexView input, bool reshape=false) {
+		Debug.Assert(reshape ? ctx.Size0(output)*ctx.Size1(output) == ctx.Size0(input)*ctx.Size1(input)
+			: ctx.Size(output) == ctx.Size(input));
 		var rt = (RenderTexture)output;
 		var mat = ctx.Operator(kernels["Function"]);
+		if(reshape)
+			EnableOption(mat, Keyword.FUNC_RESHAPE);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
 		ctx.Blit(rt, mat);
@@ -203,6 +206,77 @@ public class TensorNN {
 		mat.SetVector("_ReduceDim", new Vector2(ctx.Size0(input), groups));
 		ctx.Blit(output, mat);
 		return output;
+	}
+	public Texture Unfold(TexView input, int size1, int kernel_size, int dilation=1, int padding=0, int stride=1, int? dilation_stride=null) {
+		if(kernel_size%4 == 0 && size1%(kernel_size/4) == 0) {
+			var n = size1/(kernel_size/4);
+			var lvl = Mathf.Max(0, Mathf.CeilToInt(Mathf.Log(size1, 2)-14));
+			size1 = (kernel_size/4) * ((n + (1<<lvl)-1) &~ ((1<<lvl)-1)); // make sure wide tensor is aligned
+		}
+		var output = ctx.GPUTensor(ctx.Size0(input), size1, dtype:ctx.DType(input));
+		var mat = ctx.Operator(kernels["Function"]);
+		EnableOption(mat, Keyword.FUNC_UNFOLD);
+		SetTensor(mat, "_Output", output);
+		SetTensor(mat, "_Input",  input);
+		mat.SetVector("_FoldSize", new Vector4(kernel_size, dilation, stride, dilation_stride??stride));
+		mat.SetInt("_FoldOff", -padding);
+		ctx.Blit((RenderTexture)output, mat);
+		return output;
+	}
+	Texture Conv1d_unfolded(TexView input, TexView weight, TexView bias, int kernel_size, int stride) {
+		var idim = (kernel_size+3*stride+3)/4;
+		var wdim = (kernel_size+3)/4;
+		Debug.Assert(ctx.Size1(input)%idim == 0);
+		Debug.Assert(ctx.Size1(weight) == (kernel_size==1 ? (ctx.Size0(input)+3)/4 : ctx.Size0(input)*wdim));
+		Debug.Assert(!bias || (ctx.Size0(bias) == 1 && ctx.Size1(bias) == (ctx.Size0(weight)+3)/4));
+		var output = ctx.GPUTensor(ctx.Size0(weight), ctx.Size1(input)/idim, dtype:ctx.DType(input), lod:-1);
+		var mat = ctx.Operator(kernels["Conv1d"]);
+		EnableOption(mat, (Keyword)System.Enum.Parse(typeof(Keyword), $"CONV_K{kernel_size}_S{stride}"));
+		SetTensor(mat, "_Output", output);
+		SetTensor(mat, "_Input",  input);
+		SetTensor(mat, "_Weight", weight);
+		if(bias)
+			SetTensor(mat, "_Bias", bias);
+		ctx.Blit(output, mat);
+		return output;
+	}
+	Texture ConvTranspose1d_unfolded(TexView input, TexView weight, TexView bias, int kernel_size, int stride) {
+		const int idim = 1;
+		var wdim = (kernel_size+3)/4;
+		Debug.Assert(ctx.Size1(input)%idim == 0);
+		Debug.Assert(ctx.Size0(weight) == ctx.Size0(input) && ctx.Size1(weight)%wdim == 0);
+		Debug.Assert(!bias || (ctx.Size0(bias) == 1 && ctx.Size1(bias) == (ctx.Size1(weight)/wdim+3)/4));
+		var output = ctx.GPUTensor(ctx.Size1(weight)/wdim, ctx.Size1(input)*(stride/2), dtype:ctx.DType(input), lod:-1);
+		var mat = ctx.Operator(kernels["Conv1d"]);
+		EnableOption(mat, (Keyword)System.Enum.Parse(typeof(Keyword), $"CONV_TRANSPOSE_K{kernel_size}_S{stride}"));
+		SetTensor(mat, "_Output", output);
+		SetTensor(mat, "_Input",  input);
+		SetTensor(mat, "_Weight", weight);
+		if(bias)
+			SetTensor(mat, "_Bias", bias);
+		ctx.Blit(output, mat);
+		return output;
+	}
+	public Texture Conv1d(TexView input, TexView weight, TexView bias=default, int kernel_size=0, int dilation=1) {
+		const int stride = 1;
+		if(kernel_size == 1)
+			return Conv1d_unfolded(input, weight, bias, kernel_size:kernel_size, stride:stride);
+		var idim = (kernel_size+3*stride+3)/4;
+		var input_uf = Unfold(input, size1:(ctx.Size1(input)+dilation-1)/dilation*dilation*idim,
+			kernel_size:idim*4, dilation:dilation, dilation_stride:4, padding:(kernel_size-stride)/2*dilation);
+		var output_uf = Conv1d_unfolded(input_uf, weight, bias, kernel_size:kernel_size, stride:stride);
+		ctx.Release(input_uf);
+		if(dilation == 1)
+			return output_uf;
+		var output = Unfold(output_uf, size1:ctx.Size1(input), kernel_size:dilation, dilation:4, dilation_stride:dilation); // fold
+		ctx.Release(output_uf);
+		return output;
+	}
+	public Texture ConvTranspose1d(TexView input, TexView weight, TexView bias=default, int kernel_size=0, int stride=1) {
+		var input_uf = Unfold(input, size1:ctx.Size1(input)*2, kernel_size:4, dilation_stride:2, padding:1);
+		var output_uf = ConvTranspose1d_unfolded(input_uf, weight, bias, kernel_size:kernel_size, stride:stride);
+		ctx.Release(input_uf);
+		return output_uf;
 	}
 
 	public Texture Transpose(TexView input, int size0) {
@@ -277,6 +351,11 @@ public class TensorNN {
 		FUNC_GUMBEL,
 		FUNC_NORMAL,
 		FUNC_ROTARY,
+		FUNC_RESHAPE,
+		FUNC_UNFOLD,
+
+		CONV_K1_S1, CONV_K3_S1, CONV_K5_S1, CONV_K7_S1, CONV_K11_S1,
+		CONV_TRANSPOSE_K4_S2, CONV_TRANSPOSE_K16_S8,
 	}
 }
 }

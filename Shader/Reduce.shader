@@ -7,7 +7,7 @@ Properties {
 	_OutputTex("_OutputTex", 2D) = "black" {}
 	_InputTex ("_InputTex",  2D) = "black" {}
 	_WindowTex("_WindowTex", 2D) = "black" {}
-	_Window  ("_Window",  Vector) = (0, 1048576, 0, 0)
+	_Window  ("_Window",  Vector) = (0, 1000000000, 0, 0)
 	_IndexMod("_IndexMod", Int) = 1
 	_Scale   ("_Scale", Float) = 1
 	_Linear0 ("_Linear0", Vector) = (1, 0, 0, 0)

@@ -38,7 +38,7 @@ public class TensorTracer: TensorContext {
 	public override void Release(Texture tex) {
 		var rt = tex as RenderTexture;
 		if(rt)
-			RenderTexture.ReleaseTemporary(rt);
+			ReleaseTemporary(rt);
 		else
 			Object.Destroy(tex);
 	}

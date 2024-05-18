@@ -202,7 +202,7 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 		# reduce memory use
 		data = state_dict.pop(name)
 		print(f"\t{name}\t{tuple(data.shape)} {data.dtype}")
-		assert (re.search(r"\.weight(\.T)?$", name) and len(data.shape) == 2)\
+		assert (re.search(r"\.weight(\.T)?$", name) and len(data.shape) in (2,3))\
 			or (re.search(r"\.(weight|bias)$", name) and len(data.shape) == 1)
 
 		quantizable = bool(re.search(r"(?<!rotary_emb|_embedding)\.weight(\.T)?$", name))
@@ -234,10 +234,12 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 			if array is None:
 				continue
 			print(f"\t\t{filename}\t{tuple(array.shape)}")
-			if len(array.shape) == 2:
-				array = pad_align(array, [1, 4]).reshape(array.shape[0], -1, 4)
-			elif len(array.shape) == 1:
+			if len(array.shape) == 1:
 				array = array.reshape(1, -1, 4)
+			elif len(array.shape) == 2:
+				array = pad_align(array, [1, 4]).reshape(array.shape[0], -1, 4)
+			elif len(array.shape) == 3:
+				array = pad_align(array, [1, 4, 1] if array.shape[-1] == 1 else [1, 1, 4]).reshape(array.shape[0], -1, 4)
 			else:
 				raise KeyError(f"unexpected {array.shape}")
 
@@ -344,7 +346,7 @@ def export_testcase(model, tokenizer, folder, force_write=False):
 		), f)
 
 def main():
-	from transformers import AutoModelForCausalLM, AutoTokenizer
+	from transformers import AutoModel, AutoTokenizer
 	import argparse
 	parser = argparse.ArgumentParser()
 	parser.add_argument('model', help='model id or path. for example: roneneldan/TinyStories-1M')
@@ -362,7 +364,7 @@ def main():
 		folder /= Path(args.model).name
 	print(f"convert: {args.model} => {folder}")
 	disable_exllama()
-	model = AutoModelForCausalLM.from_pretrained(args.model, device_map=args.device or None, trust_remote_code=args.trust)
+	model = AutoModel.from_pretrained(args.model, device_map=args.device or None, trust_remote_code=args.trust)
 	tokenizer = AutoTokenizer.from_pretrained(args.tokenizer or args.model)
 	quantize = (lambda name, shape: np.prod(shape) >= args.quantize*1024*1024) if args.quantize else None
 	print(f"model: {type(model)}")

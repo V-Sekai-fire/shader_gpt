@@ -100,15 +100,19 @@ public class TensorContext {
 		texSet.Remove(tex);
 		var rt = tex as RenderTexture;
 		if(rt) {
-			RenderTexture.ReleaseTemporary(rt);
+			ReleaseTemporary(rt);
 			return;
 		}
 		Object.Destroy(tex);
 	}
 	public virtual void ReleasePersistent() {
 		foreach(var pair in rtDict)
-			RenderTexture.ReleaseTemporary(pair.Value);
+			ReleaseTemporary(pair.Value);
 		rtDict.Clear();
+	}
+	protected static void ReleaseTemporary(RenderTexture rt) {
+		rt.mipMapBias = 0;
+		RenderTexture.ReleaseTemporary(rt);
 	}
 
 	// operator creation
@@ -181,27 +185,23 @@ public class TensorContext {
 		Debug.Log(sb.ToString());
 	}
 
-	const int maxTextureSize = 16384;
-	public bool autoTile = true;
 	public VertexAttributeFormat defaultDType = VertexAttributeFormat.Float32;
 	protected (int,int,TextureFormat) CPUTensorDescriptor(int size0, int size1, int size2=4, VertexAttributeFormat? dtype=null) {
 		return (size1, size0, dtypeToTexFormat[(dtype??defaultDType,size2)]);
 	}
 	protected RenderTextureDescriptor GPUTensorDescriptor(int size0, int size1, int size2=4, VertexAttributeFormat? dtype=null, int lod=0, bool autoGenMips=true) {
-		if(autoTile && (size0<<lod) == 1 && size1 % 2 == 0) {
-			// tile when height==1, which inactivates half wave lanes
-			size0 <<= 1;
-			size1 >>= 1;
-		}
-		if(size1 > maxTextureSize) {
-			// tile when width exceeds unity limit
-			var lvl = Mathf.CeilToInt(Mathf.Log((float)size1/maxTextureSize, 2));
-			size1 >>= lvl;
-			size0 <<= lvl;
-		}
-		var desc = new RenderTextureDescriptor(size1, size0, dtypeToRTFormat[(dtype??defaultDType,size2)], 0);
-		while(lod > 0 && ((desc.width << lod) > maxTextureSize || (desc.height << lod) > maxTextureSize))
-			lod --;
+		const int AUTO_LOD = 14; // test result: 13>14>15>12
+		const int AUTO_TILE = 0; // inconsistent test result: disable for now
+		var log0 = Mathf.CeilToInt(Mathf.Log(size0, 2));
+		var log1 = Mathf.CeilToInt(Mathf.Log(size1, 2));
+		var ctz1 = Mathf.RoundToInt(Mathf.Log(size1 & -size1, 2));
+		// max(0, lod+log1-14) <= tile <= min(ctz1, 14-lod-log0)
+		// log0+log1+2*lod >= AUTO_LOD and log0+lod+tile >= AUTO_TILE if possible
+		var lod_ub = Mathf.Min(14-log0, ctz1+14-log1, (14-log0+14-log1)>>1);
+		Debug.Assert(0 <= lod_ub, $"can't allocate a wide tensor of exact size ({size0},{size1})");
+		lod = Mathf.Clamp(lod >= 0 ? lod : (AUTO_LOD-(log0+log1)+1)>>1, 0, lod_ub);
+		var tile = Mathf.Clamp(AUTO_TILE-log0-lod, Mathf.Max(0, lod+log1-14), Mathf.Min(ctz1, 14-lod-log0));
+		var desc = new RenderTextureDescriptor(size1>>tile, size0<<tile, dtypeToRTFormat[(dtype??defaultDType,size2)], 0);
 		if(lod > 0) {
 			desc.width <<= lod;
 			desc.height <<= lod;
@@ -209,6 +209,7 @@ public class TensorContext {
 			desc.autoGenerateMips = autoGenMips;
 			desc.mipCount = 1+lod;
 		}
+		Debug.Assert(desc.width <= 16384 && desc.height <= 16384);
 		return desc;
 	}
 	static Dictionary<(VertexAttributeFormat, int), TextureFormat> dtypeToTexFormat =

@@ -15,12 +15,14 @@ Properties {
 	_MulTex   ("_MulTex",    2D) = "black" {}
 	_AddTex   ("_AddTex",    2D) = "black" {}
 	_RotaryTex("_RotaryTex", 2D) = "black" {}
-	_Window   ("_Window",    Vector) = (0, 1048576, 0, 0)
+	_Window   ("_Window",    Vector) = (0, 1000000000, 0, 0)
 	_Default  ("_Default",   Vector) = (0, 0, 0, 0)
 	_Scale    ("_Scale", Float) = 1
 	_Eps      ("_Eps",   Float) = 0
 	_Mul      ("_Mul",   Vector) = (1, 1, 1, 1)
 	_Add      ("_Add",   Vector) = (0, 0, 0, 0)
+	_FoldSize ("_FoldSize", Vector) = (0, 0, 0, 0)
+	_FoldOff  ("_FoldOff", Int) = 0
 }
 SubShader {
 	Tags { "PreviewType"="Plane" } // prevent freezing Unity editor
@@ -41,6 +43,8 @@ uniform float _Eps;
 uniform float _Scale;
 uniform float4 _Mul;
 uniform float4 _Add;
+uniform uint4 _FoldSize;
+uniform int _FoldOff;
 
 float4 main(uint2 pos) {
 	// output[i,j] = func(input[i,j]) * mul + add
@@ -98,6 +102,21 @@ float4 main(uint2 pos) {
 			}
 			O = k.xxyy >= J ? Z*Y + X*W : X*Y - Z*W;
 		}
+
+	#elif defined(FUNC_RESHAPE) // torch.reshape
+		uint idx = pos.x * _OutputDim.y + pos.y;
+		O = LOAD_TENSOR(_Input, _InputTex_ST.xy*uint2(idx/_InputDim.y, idx%_InputDim.y));
+	#elif defined(FUNC_UNFOLD) // torch.nn.functional.unfold
+		uint kernel_size = _FoldSize.x, dilation = _FoldSize.y;
+		uint stride = _FoldSize.z,      dilation_stride = _FoldSize.w;
+		[unroll] for(uint c=0; c<4; c++) {
+			uint j = pos.y*4+c;
+			uint r = j % kernel_size;
+			uint q = j / kernel_size % dilation;
+			uint p = j / kernel_size / dilation;
+			uint k = (p*dilation_stride + r)*dilation + q*stride + uint(_FoldOff);
+			O[c] = k/4 < _InputDim.y ? LOAD_TENSOR(_Input, _InputTex_ST.xy*uint2(pos.x, k/4))[k%4] : 0;
+		}
 	#endif
 
 	pos.y = pos.y%(_OutputDim.y/_ReduceDim.y) * _ReduceDim.y; // restrict y to each group
@@ -129,7 +148,8 @@ HLSLPROGRAM
 	FUNC_GROUPNORM FUNC_SOFTMAX\
 	FUNC_GELU FUNC_GELU_NEW FUNC_RELU FUNC_SIGMOID FUNC_SILU FUNC_TANH\
 	FUNC_EXP FUNC_GUMBEL FUNC_NORMAL\
-	FUNC_ROTARY
+	FUNC_ROTARY\
+	FUNC_RESHAPE FUNC_UNFOLD
 ENDHLSL
 	}
 }
