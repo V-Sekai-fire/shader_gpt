@@ -9,7 +9,7 @@ public abstract class Module {
 
 	public Module(TensorNN nn) {
 		this.nn = nn;
-		this.state_dict = new();
+		this.state_dict = new Dictionary<string, Texture>();
 	}
 	public void LoadStateDict(IEnumerable<Texture> textures) {
 		foreach(var tex in textures)
@@ -59,6 +59,6 @@ public abstract class PretrainedModel<T> : Module, PretrainedModel where T : Pre
 	}
 }
 public interface PretrainedModel {
-	public void LoadStateDict(IEnumerable<Texture> textures);
+	/*public*/ void LoadStateDict(IEnumerable<Texture> textures);
 }
 }

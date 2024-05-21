@@ -39,10 +39,11 @@ public abstract class ModelForCausalLM<T> : PretrainedModel<T>, ModelForCausalLM
 	}
 }
 public interface ModelForCausalLM : PretrainedModel {
-	public GenerationConfig generation_config {get;set;}
-	public (Texture, Texture) ForCausalLM(Texture input_ids);
-	public Texture Generate(Texture input, ref Texture scores);
-
+	/*public*/ GenerationConfig generation_config {get;set;}
+	/*public*/ (Texture, Texture) ForCausalLM(Texture input_ids);
+	/*public*/ Texture Generate(Texture input, ref Texture scores);
+}
+public static class AutoModelForCausalLM {
 	public static ModelForCausalLM FromPretrained(TensorNN nn, TextAsset configJson) {
 		var config = JsonUtility.FromJson<PretrainedConfig>(configJson.text);
 		switch(config.model_type) {

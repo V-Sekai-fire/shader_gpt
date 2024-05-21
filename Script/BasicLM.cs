@@ -43,7 +43,7 @@ public class BasicLM : MonoBehaviour {
 			ctx = new TensorContext(),
 			kernels = shaders.ToDictionary(x => x.name.Split('/')[1], x => x),
 		};
-		model = ModelForCausalLM.FromPretrained(nn, configJson, textures);
+		model = AutoModelForCausalLM.FromPretrained(nn, configJson, textures);
 		model.generation_config = generationConfig;
 		config = JsonUtility.FromJson<PretrainedConfig>(configJson.text);
 		tokenizer = JsonUtility.FromJson<Tokenizer>(tokenizerJson.text);
