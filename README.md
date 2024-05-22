@@ -23,7 +23,8 @@ The following architectures are supported:
 [Mistral](https://huggingface.co/docs/transformers/main/en/model_doc/mistral),
 [Qwen2](https://huggingface.co/docs/transformers/main/en/model_doc/qwen2),
 [Gemma](https://huggingface.co/docs/transformers/main/en/model_doc/gemma),
-Phi3 (experimental), OpenELM (experimental)
+[Phi3](https://huggingface.co/docs/transformers/main/en/model_doc/phi3),
+OpenELM (experimental)
 
 The following quantizations are supported:
 

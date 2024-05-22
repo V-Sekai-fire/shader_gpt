@@ -55,9 +55,9 @@ public class Llama : ModelForCausalLM<LlamaConfig> {
 	}
 	void LlamaMLP(string path, ref Texture hidden_states) {
 		var gate = nn.Linear(hidden_states, state_dict[$"{path}.gate_proj.weight"]);
-		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.up_proj.weight"]));
-		var act = BatchRelease(nn.Fusion(MarkRelease(gate), func:TensorNN.ActFn(config.hidden_act)));
-		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), mul:MarkRelease(act)));
+		var up   = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.up_proj.weight"]));
+		var act  = BatchRelease(nn.Fusion(MarkRelease(gate), func:TensorNN.ActFn(config.hidden_act)));
+		hidden_states = BatchRelease(nn.Fusion(MarkRelease(up), mul:MarkRelease(act)));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.down_proj.weight"]));
 	}
 	void LlamaDecoderLayer(string path, ref Texture hidden_states, Texture input_ids, float scale=1f) {

@@ -12,8 +12,6 @@ public class Phi3Config : PretrainedConfig<Phi3Config> {
 	public string hidden_act;
 	public float rms_norm_eps;
 	public int head_dim;
-
-	// TODO: clean up when Phi3 is added to transformers
 }
 public class Phi3 : ModelForCausalLM<Phi3Config> {
 	public Phi3(TensorNN nn, Phi3Config config): base(nn, config) {}
@@ -46,11 +44,11 @@ public class Phi3 : ModelForCausalLM<Phi3Config> {
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.o_proj.weight"]));
 	}
 	void Phi3MLP(string path, ref Texture hidden_states) {
-		var y_12 = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.gate_up_proj.weight"]));
-		var y_1 = ctx.Slice(y_12, ctx.Size0(y_12), ctx.Size1(y_12)/2);
-		var y_2 = ctx.Slice(y_12, ctx.Size0(y_12), ctx.Size1(y_12)/2, 0, ctx.Size1(y_12)/2);
-		var act = nn.Fusion(y_1, func:TensorNN.ActFn(config.hidden_act));
-		hidden_states = BatchRelease(nn.Fusion((MarkRelease(y_12), y_2).Item2, mul:MarkRelease(act)));
+		var gate_up = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.gate_up_proj.weight"]));
+		var gate = ctx.Slice(gate_up, ctx.Size0(gate_up), ctx.Size1(gate_up)/2);
+		var up   = ctx.Slice(gate_up, ctx.Size0(gate_up), ctx.Size1(gate_up)/2, 0, ctx.Size1(gate_up)/2);
+		var act  = nn.Fusion(gate, func:TensorNN.ActFn(config.hidden_act));
+		hidden_states = BatchRelease(nn.Fusion((MarkRelease(gate_up), up).Item2, mul:MarkRelease(act)));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.down_proj.weight"]));
 	}
 	void Phi3DecoderLayer(string path, ref Texture hidden_states, Texture input_ids) {

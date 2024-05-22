@@ -346,7 +346,7 @@ def export_testcase(model, tokenizer, folder, force_write=False):
 		), f)
 
 def main():
-	from transformers import AutoModel, AutoTokenizer
+	from transformers import AutoModelForCausalLM, AutoTokenizer
 	import argparse
 	parser = argparse.ArgumentParser()
 	parser.add_argument('model', help='model id or path. for example: roneneldan/TinyStories-1M')
@@ -364,7 +364,7 @@ def main():
 		folder /= Path(args.model).name
 	print(f"convert: {args.model} => {folder}")
 	disable_exllama()
-	model = AutoModel.from_pretrained(args.model, device_map=args.device or None, trust_remote_code=args.trust)
+	model = AutoModelForCausalLM.from_pretrained(args.model, device_map=args.device or None, trust_remote_code=args.trust)
 	tokenizer = AutoTokenizer.from_pretrained(args.tokenizer or args.model)
 	quantize = (lambda name, shape: np.prod(shape) >= args.quantize*1024*1024) if args.quantize else None
 	print(f"model: {type(model)}")

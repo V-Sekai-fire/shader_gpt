@@ -57,11 +57,11 @@ public class OpenELM : ModelForCausalLM<OpenELMConfig> {
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.out_proj.weight"]));
 	}
 	void OpenELMFeedForwardNetwork(string path, ref Texture hidden_states) {
-		var y_12 = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.proj_1.weight"]));
-		var y_1 = ctx.Slice(y_12, ctx.Size0(y_12), ctx.Size1(y_12)/2);
-		var y_2 = ctx.Slice(y_12, ctx.Size0(y_12), ctx.Size1(y_12)/2, 0, ctx.Size1(y_12)/2);
-		var act = nn.Fusion(y_1, func:TensorNN.ActFn(config.hidden_act));
-		hidden_states = BatchRelease(nn.Fusion((MarkRelease(y_12), y_2).Item2, mul:MarkRelease(act)));
+		var gate_up = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.proj_1.weight"]));
+		var gate = ctx.Slice(gate_up, ctx.Size0(gate_up), ctx.Size1(gate_up)/2);
+		var up   = ctx.Slice(gate_up, ctx.Size0(gate_up), ctx.Size1(gate_up)/2, 0, ctx.Size1(gate_up)/2);
+		var act  = nn.Fusion(gate, func:TensorNN.ActFn(config.hidden_act));
+		hidden_states = BatchRelease(nn.Fusion((MarkRelease(gate_up), up).Item2, mul:MarkRelease(act)));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.proj_2.weight"]));
 	}
 	void OpenELMDecoderLayer(string path, ref Texture hidden_states, Texture input_ids, int layer_id) {
