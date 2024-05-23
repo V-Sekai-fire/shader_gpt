@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace ShaderGPT.Models {
 [System.Serializable]
-public class LlamaConfig : PretrainedConfig<LlamaConfig>, ISerializationCallbackReceiver {
+public class LlamaConfig : PretrainedConfig<LlamaConfig> {
 	public int max_position_embeddings;
 	public int hidden_size;
 	public int num_hidden_layers;
@@ -11,18 +11,19 @@ public class LlamaConfig : PretrainedConfig<LlamaConfig>, ISerializationCallback
 	public int num_key_value_heads;
 	public string hidden_act;
 	public float rms_norm_eps;
-	public int sliding_window; // for mistral & qwen2
 
 	public string hidden_activation; // for gemma
-	public void OnBeforeSerialize() {}
-	public void OnAfterDeserialize() {
-		if(model_type == "gemma")
-			hidden_act = string.IsNullOrEmpty(hidden_activation) ? "gelu_pytorch_tanh" : hidden_activation;
-	}
+	public float layer_norm_eps; // for stablelm
+	public int sliding_window; // for mistral & qwen2
 }
 public class Llama : ModelForCausalLM<LlamaConfig> {
 	public Llama(TensorNN nn, LlamaConfig config): base(nn, config) {}
 	public override (Texture, Texture) ForCausalLM(Texture input_ids) => LlamaForCausalLM(input_ids);
+
+	string hidden_act => config.model_type != "gemma" ? config.hidden_act
+		: string.IsNullOrEmpty(config.hidden_activation) ? "gelu_pytorch_tanh" : config.hidden_activation;
+	float norm_eps => config.layer_norm_eps == 0f ? config.rms_norm_eps : config.layer_norm_eps;
+	bool rmsNorm => config.layer_norm_eps == 0f;
 
 	void LlamaAttention(string path, ref Texture hidden_states, Texture input_ids) {
 		state_dict.TryGetValue($"{path}.q_proj.bias", out var q_bias);
@@ -56,15 +57,17 @@ public class Llama : ModelForCausalLM<LlamaConfig> {
 	void LlamaMLP(string path, ref Texture hidden_states) {
 		var gate = nn.Linear(hidden_states, state_dict[$"{path}.gate_proj.weight"]);
 		var up   = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.up_proj.weight"]));
-		var act  = BatchRelease(nn.Fusion(MarkRelease(gate), func:TensorNN.ActFn(config.hidden_act)));
+		var act  = BatchRelease(nn.Fusion(MarkRelease(gate), func:TensorNN.ActFn(hidden_act)));
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(up), mul:MarkRelease(act)));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.down_proj.weight"]));
 	}
 	void LlamaDecoderLayer(string path, ref Texture hidden_states, Texture input_ids, float scale=1f) {
-		var attn_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.input_layernorm.weight"], null, config.rms_norm_eps, rmsNorm:true);
+		state_dict.TryGetValue($"{path}.input_layernorm.bias", out var bias);
+		var attn_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.input_layernorm.weight"], bias, norm_eps, rmsNorm:rmsNorm);
 		LlamaAttention($"{path}.self_attn", ref attn_states, input_ids);
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), scale:scale, add:MarkRelease(attn_states)));
-		var mlp_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.post_attention_layernorm.weight"], null, config.rms_norm_eps, rmsNorm:true);
+		state_dict.TryGetValue($"{path}.post_attention_layernorm.bias", out bias);
+		var mlp_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.post_attention_layernorm.weight"], bias, norm_eps, rmsNorm:rmsNorm);
 		LlamaMLP($"{path}.mlp", ref mlp_states);
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(mlp_states)));
 	}
@@ -74,7 +77,8 @@ public class Llama : ModelForCausalLM<LlamaConfig> {
 		for(int i=0; i<config.num_hidden_layers; i++)
 			LlamaDecoderLayer($"{path}.layers.{i}", ref hidden_states, input_ids,
 				scale:(i == 0 && config.model_type == "gemma" ? Mathf.Sqrt(config.hidden_size) : 1f));
-		hidden_states = BatchRelease(nn.GroupNorm(MarkRelease(hidden_states), state_dict[$"{path}.norm.weight"], null, config.rms_norm_eps, rmsNorm:true));
+		state_dict.TryGetValue($"{path}.norm.bias", out var bias);
+		hidden_states = BatchRelease(nn.GroupNorm(MarkRelease(hidden_states), state_dict[$"{path}.norm.weight"], bias, norm_eps, rmsNorm:rmsNorm));
 		return hidden_states;
 	}
 	(Texture, Texture) LlamaForCausalLM(Texture input_ids) {

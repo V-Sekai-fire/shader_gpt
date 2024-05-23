@@ -165,7 +165,7 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 						transpose(0,1).reshape_as(data)
 				continue
 			del state_dict[name]
-	elif model_type in ["gemma", "llama", "mistral", "phi", "phi3", "qwen2"]:
+	elif model_type in ["gemma", "llama", "mistral", "phi", "phi3", "qwen2", "stablelm"]:
 		for name, data in list(state_dict.items()):
 			if name in ["model.embed_tokens.weight", "lm_head.weight"]:
 				state_dict[f"{name}.T"] = unpack(data).T
@@ -235,7 +235,7 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 				continue
 			print(f"\t\t{filename}\t{tuple(array.shape)}")
 			if len(array.shape) == 1:
-				array = array.reshape(1, -1, 4)
+				array = pad_align(array, [4]).reshape(1, -1, 4)
 			elif len(array.shape) == 2:
 				array = pad_align(array, [1, 4]).reshape(array.shape[0], -1, 4)
 			elif len(array.shape) == 3:

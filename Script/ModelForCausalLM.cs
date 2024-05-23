@@ -57,6 +57,7 @@ public static class AutoModelForCausalLM {
 		case "llama":
 		case "mistral":
 		case "qwen2":
+		case "stablelm":
 			return new Models.Llama(nn, Models.LlamaConfig.FromPretrained(configJson));
 		case "openelm":
 			return new Models.OpenELM(nn, Models.OpenELMConfig.FromPretrained(configJson));

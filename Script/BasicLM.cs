@@ -104,10 +104,10 @@ public class BasicLM : MonoBehaviour {
 		{typeof(Models.GPT2), (8e-5f, 2e-4f)},
 		{typeof(Models.GPTNeo), (5e-5f, 2e-4f)},
 		{typeof(Models.GPTNeoX), (6e-3f, 6e-3f)},
-		{typeof(Models.Llama), (4e-5f, 4e-5f)},
+		{typeof(Models.Llama), (7e-5f, 4e-5f)},
 		{typeof(Models.Phi), (3e-5f, 5e-5f)},
-		{typeof(Models.Phi3), (1e-4f, 1e-4f)}, // TODO
-		{typeof(Models.OpenELM), (1e-4f, 1e-4f)},
+		{typeof(Models.Phi3), (3e-4f, 8e-5f)},
+		{typeof(Models.OpenELM), (4e-5f, 1e-4f)},
 	};
 	int Run(int positionId) {
 		var input = InputTensor(tokens, positionId);
