@@ -20,7 +20,7 @@ public class GPT2 : ModelForCausalLM<GPT2Config> {
 	public override (Texture, Texture) ForCausalLM(Texture input_ids) => GPT2LMHeadModel(input_ids);
 
 	void GPT2Attention(string path, ref Texture hidden_states, Texture input_ids) {
-		var qkv = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.c_attn.weight"], state_dict[$"{path}.c_attn.bias"]));
+		var qkv = BatchRelease(Linear($"{path}.c_attn", MarkRelease(hidden_states)));
 		var q = ctx.Slice(qkv, ctx.Size0(qkv), config.hidden_size/4);
 		var k = ctx.Slice(qkv, ctx.Size0(qkv), config.hidden_size/4, 0, config.hidden_size/4);
 		var v = ctx.Slice(qkv, ctx.Size0(qkv), config.hidden_size/4, 0, config.hidden_size/2);
@@ -36,34 +36,33 @@ public class GPT2 : ModelForCausalLM<GPT2Config> {
 		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores), scale:norm_factor,
 			groups:config.num_attention_heads, window:(new Vector4(1-window_size, 1, 0, 1), input_ids)));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:config.num_attention_heads, weightT:true));
-		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.c_proj.weight"], state_dict[$"{path}.c_proj.bias"]));
+		hidden_states = BatchRelease(Linear($"{path}.c_proj", MarkRelease(hidden_states)));
 	}
 	void GPT2MLP(string path, ref Texture hidden_states) {
-		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.c_fc.weight"], state_dict[$"{path}.c_fc.bias"]));
+		hidden_states = BatchRelease(Linear($"{path}.c_fc", MarkRelease(hidden_states)));
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), func:TensorNN.ActFn(config.activation_function)));
-		hidden_states = BatchRelease(nn.Linear(MarkRelease(hidden_states), state_dict[$"{path}.c_proj.weight"], state_dict[$"{path}.c_proj.bias"]));
+		hidden_states = BatchRelease(Linear($"{path}.c_proj", MarkRelease(hidden_states)));
 	}
 	void GPT2Block(string path, ref Texture hidden_states, Texture input_ids) {
-		var attn_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.ln_1.weight"], state_dict[$"{path}.ln_1.bias"], config.layer_norm_epsilon);
+		var attn_states = LayerNorm($"{path}.ln_1", hidden_states, config.layer_norm_epsilon);
 		GPT2Attention($"{path}.attn", ref attn_states, input_ids);
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(attn_states)));
-		var mlp_states = nn.GroupNorm(hidden_states, state_dict[$"{path}.ln_2.weight"], state_dict[$"{path}.ln_2.bias"], config.layer_norm_epsilon);
+		var mlp_states = LayerNorm($"{path}.ln_2", hidden_states, config.layer_norm_epsilon);
 		GPT2MLP($"{path}.mlp", ref mlp_states);
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(mlp_states)));
 	}
 	Texture GPT2Model(string path, Texture input_ids) {
-		var inputs_embeds   = nn.IndexSelect(state_dict[$"{path}.wte.weight.T"], (input_ids, 0), inputT:true);
-		var position_embeds = nn.IndexSelect(state_dict[$"{path}.wpe.weight.T"], (input_ids, 1), inputT:true);
+		var inputs_embeds   = Embedding($"{path}.wte", (input_ids, 0));
+		var position_embeds = Embedding($"{path}.wpe", (input_ids, 1));
 		var hidden_states   = BatchRelease(nn.Fusion(MarkRelease(inputs_embeds), add:MarkRelease(position_embeds)));
 		for(int i=0; i<config.num_hidden_layers; i++)
 			GPT2Block($"{path}.h.{i}", ref hidden_states, input_ids);
-		hidden_states = BatchRelease(nn.GroupNorm(MarkRelease(hidden_states), state_dict[$"{path}.ln_f.weight"], state_dict[$"{path}.ln_f.bias"], config.layer_norm_epsilon));
+		hidden_states = BatchRelease(LayerNorm($"{path}.ln_f", MarkRelease(hidden_states), config.layer_norm_epsilon));
 		return hidden_states;
 	}
 	(Texture, Texture) GPT2LMHeadModel(Texture input_ids) {
 		var hidden_states = GPT2Model("transformer", input_ids);
-		state_dict.TryGetValue("lm_head.weight.T", out var lm_head);
-		var logits = nn.Linear(hidden_states, lm_head ?? state_dict["transformer.wte.weight.T"], weightT:true);
+		var logits = Linear("lm_head", hidden_states, fallback:"transformer.wte");
 		return (hidden_states, logits);
 	}
 }

@@ -41,6 +41,33 @@ public abstract class Module {
 		if(state_dict.TryGetValue(name+".q8.idx", out var permuter))
 			ctx.FixSize0(permuter, 1);
 	}
+
+	// common layers
+	protected Texture Embedding(string path, (TexView, int) input, string fallback=null) {
+		if(fallback != null && !state_dict.ContainsKey($"{path}.weight.T") && !state_dict.ContainsKey($"{path}.weight"))
+			path = fallback;
+		state_dict.TryGetValue($"{path}.weight.T", out var weightT);
+		return nn.IndexSelect(weightT ?? state_dict[$"{path}.weight"], input, inputT:weightT);
+	}
+	protected Texture Linear(string path, TexView input, string fallback=null) {
+		if(fallback != null && !state_dict.ContainsKey($"{path}.weight.T") && !state_dict.ContainsKey($"{path}.weight"))
+			path = fallback;
+		state_dict.TryGetValue($"{path}.weight.T", out var weightT);
+		state_dict.TryGetValue($"{path}.bias", out var bias);
+		return nn.Linear(input, weightT ?? state_dict[$"{path}.weight"], bias, weightT:weightT);
+	}
+	protected Texture Conv1d(string path, TexView input, int kernel_size, int dilation=1) {
+		state_dict.TryGetValue($"{path}.bias", out var bias);
+		return nn.Conv1d(input, state_dict[$"{path}.weight"], bias, kernel_size:kernel_size, dilation:dilation);
+	}
+	protected Texture ConvTranspose1d(string path, TexView input, int kernel_size, int stride=1) {
+		state_dict.TryGetValue($"{path}.bias", out var bias);
+		return nn.ConvTranspose1d(input, state_dict[$"{path}.weight"], bias, kernel_size:kernel_size, stride:stride);
+	}
+	protected Texture LayerNorm(string path, TexView input, float eps, int groups=1, bool rms=false) {
+		state_dict.TryGetValue($"{path}.bias", out var bias);
+		return nn.GroupNorm(input, state_dict[$"{path}.weight"], bias, eps, groups:groups, rms:rms);
+	}
 }
 [System.Serializable]
 public class PretrainedConfig {

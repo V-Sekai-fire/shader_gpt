@@ -305,11 +305,11 @@ public class TensorNN {
 		return _Reduce(input, Keyword.REDUCE_MINMAX, window:window,
 			linear:new Matrix4x4(default, default, default, new Vector4(1,0,0,0)));
 	}
-	public Texture GroupNorm(TexView input, TexView weight, TexView bias, float eps, int groups=1, bool rmsNorm=false) {
-		Debug.Assert(ctx.Size0(weight) == 1 && ctx.Size1(weight)*groups == ctx.Size1(input));
-		Debug.Assert(rmsNorm ? !bias : (ctx.Size0(bias) == 1 && ctx.Size1(bias)*groups == ctx.Size1(input)));
+	public Texture GroupNorm(TexView input, TexView weight, TexView bias, float eps, int groups=1, bool rms=false) {
+		Debug.Assert(ctx.Size0(weight) == 1 && ctx.Size1(weight)*groups % ctx.Size1(input) == 0); // layernorm or groupnorm
+		Debug.Assert(rms ? !bias : (ctx.Size0(bias) == 1 && ctx.Size1(bias) == ctx.Size1(weight)));
 		return _Normalize(input, Keyword.FUNC_GROUPNORM, reduceFunc:Keyword.REDUCE_SUMPOW, groups:groups,
-			mul:weight, add:bias, eps:eps, linear:Matrix4x4.Scale(new Vector4(1, rmsNorm?0:1, 1, 1)));
+			mul:weight, add:bias, eps:eps, linear:Matrix4x4.Scale(new Vector4(1, rms?0:1, 1, 1)));
 	}
 	public Texture Softmax(TexView input, int groups=1, float scale=1f, (Vector4,Texture)? window=null) {
 		return _Normalize(input, Keyword.FUNC_SOFTMAX, Keyword.REDUCE_SUMEXP, groups:groups, scale:scale, window:window);

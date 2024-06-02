@@ -128,14 +128,13 @@ float4 main(uint2 pos) {
 		}
 	#endif
 
-	pos.y = pos.y%(_OutputDim.y/_ReduceDim.y) * _ReduceDim.y; // restrict y to each group
 	O = mask ? O : _Default;
 	O *= _Mul;
 	if(_MulDim.x)
-		O *= LOAD_TENSOR(_Mul, pos.xy/(_OutputDim.xy/_MulDim.xy));
+		O *= LOAD_TENSOR(_Mul, pos.xy%_MulDim.xy);
 	O += _Add;
 	if(_AddDim.x)
-		O += LOAD_TENSOR(_Add, pos.xy/(_OutputDim.xy/_AddDim.xy));
+		O += LOAD_TENSOR(_Add, pos.xy%_AddDim.xy);
 
 	return O;
 }
