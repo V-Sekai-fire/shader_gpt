@@ -32,7 +32,7 @@ HLSLINCLUDE
 
 uint4 _OutputDim; int4 _OutputTex_ST;
 DEFINE_TEXTURE2D(_InputTex);  uint4 _InputDim;
-DEFINE_TEXTURE2D(_ReduceTex); uint4 _ReduceDim;
+DEFINE_TEXTURE2D(_ReduceTex); uint4 _ReduceDim; // y = group count for non-reduce functions
 DEFINE_TEXTURE2D(_WindowTex); uint4 _WindowDim;
 DEFINE_TEXTURE2D(_MulTex);    uint4 _MulDim;
 DEFINE_TEXTURE2D(_AddTex);    uint4 _AddDim;
@@ -103,6 +103,15 @@ float4 main(uint2 pos) {
 			O = k.xxyy >= J ? Z*Y + X*W : X*Y - Z*W;
 		}
 
+	#elif defined(FUNC_NARROW) // torch.narrow
+		uint J = _InputDim.y/_ReduceDim.y;
+		uint k = pos.y/(_OutputDim.y/_ReduceDim.y);
+		index += range.x;
+		mask = index < range.y;
+		[unroll] for(uint c=0; c<4; c++) {
+			uint j = index[c];
+			O[c] = j/4 < J ? LOAD_TENSOR(_Input, _InputTex_ST.xy*uint2(pos.x, k*J+j/4))[j%4] : 0;
+		}
 	#elif defined(FUNC_RESHAPE) // torch.reshape
 		uint idx = pos.x * _OutputDim.y + pos.y;
 		O = LOAD_TENSOR(_Input, _InputTex_ST.xy*uint2(idx/_InputDim.y, idx%_InputDim.y));
@@ -149,7 +158,7 @@ HLSLPROGRAM
 	FUNC_GELU FUNC_GELU_NEW FUNC_RELU FUNC_SIGMOID FUNC_SILU FUNC_TANH\
 	FUNC_EXP FUNC_GUMBEL FUNC_NORMAL\
 	FUNC_ROTARY\
-	FUNC_RESHAPE FUNC_UNFOLD
+	FUNC_NARROW FUNC_RESHAPE FUNC_UNFOLD
 ENDHLSL
 	}
 }

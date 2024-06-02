@@ -203,7 +203,22 @@ public class TensorNN {
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
 		SetTensor(mat, "_Rotary", rotary);
-		mat.SetVector("_ReduceDim", new Vector2(ctx.Size0(input), groups));
+		mat.SetVector("_ReduceDim", new Vector2(1, groups));
+		ctx.Blit(output, mat);
+		return output;
+	}
+	public Texture Narrow(TexView input, (Vector4,Texture) window, int groups=1) {
+		Debug.Assert(ctx.Size1(input) % groups == 0);
+		var size1 = ((int)(window.Item1.y-window.Item1.x)+3)/4 * groups;
+		var output = ctx.GPUTensor(ctx.Size0(input), size1, dtype:ctx.DType(input));
+		var mat = ctx.Operator(kernels["Function"]);
+		EnableOption(mat, Keyword.FUNC_NARROW);
+		SetTensor(mat, "_Output", output);
+		SetTensor(mat, "_Input",  input);
+		mat.SetVector("_ReduceDim", new Vector2(1, groups));
+		mat.SetVector("_Window", window.Item1);
+		if(window.Item2)
+			SetTensor(mat, "_Window", window.Item2);
 		ctx.Blit(output, mat);
 		return output;
 	}
@@ -351,6 +366,8 @@ public class TensorNN {
 		FUNC_GUMBEL,
 		FUNC_NORMAL,
 		FUNC_ROTARY,
+
+		FUNC_NARROW,
 		FUNC_RESHAPE,
 		FUNC_UNFOLD,
 

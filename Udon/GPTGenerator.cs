@@ -114,35 +114,46 @@ public class GPTGenerator : MonoBehaviour
 			return;
 		}
 		GenerateToken();
+		RequestGPUReadback(bufOutput);
+	}
+	void OnGPUReadback(float[] data) {
+		outputToken = Mathf.RoundToInt(data[0]);
+		outputIndex = Mathf.RoundToInt(data[1]);
+		if(outputIndex >= inputIndex)
+			return; // skip tokens from last sequence
 #if UDON
-		VRCAsyncGPUReadback.Request(bufOutput, 0, TextureFormat.RGBAFloat, (VRC.Udon.Common.Interfaces.IUdonEventReceiver)(Component)this);
+		eventTarget.SendCustomEvent(eventMethod);
 #else
-		AsyncGPUReadback.Request(bufOutput, 0, TextureFormat.RGBAFloat, OnAsyncGpuReadbackComplete);
+		eventTarget.SendMessage(eventMethod);
 #endif
 	}
-	private Color[] readbackData = new Color[1];
+
+	void RequestGPUReadback(Texture src) {
+#if UDON
+		VRCAsyncGPUReadback.Request(src, 0, TextureFormat.RGBAFloat, (VRC.Udon.Common.Interfaces.IUdonEventReceiver)(Component)this);
+#else
+		AsyncGPUReadback.Request(src, 0, TextureFormat.RGBAFloat, OnAsyncGpuReadbackComplete);
+#endif
+	}
+	private float[] readbackData;
 #if UDON
 	public override void OnAsyncGpuReadbackComplete(VRCAsyncGPUReadbackRequest request)
 #else
 	public void OnAsyncGpuReadbackComplete(AsyncGPUReadbackRequest request)
 #endif
 	{
-		if (request.hasError || !request.done) return;
-		if (!this) return;
+		if(!(this && this.enabled))
+			return;
+		if(request.hasError || !request.done)
+			return;
+		if(readbackData == null)
+			readbackData = new float[request.width*request.height*4];
 #if UDON
 		request.TryGetData(readbackData);
 #else
-		request.GetData<Color>().CopyTo(readbackData);
+		request.GetData<float>().CopyTo(readbackData);
 #endif
-		outputIndex = Mathf.RoundToInt(readbackData[0].g);
-		if(outputIndex >= inputIndex)
-			return; // skip tokens from last sequence
-		outputToken = Mathf.RoundToInt(readbackData[0].r);
-#if UDON
-		eventTarget.SendCustomEvent(eventMethod);
-#else
-		eventTarget.SendMessage(eventMethod);
-#endif
+		OnGPUReadback(readbackData);
 	}
 }
 }

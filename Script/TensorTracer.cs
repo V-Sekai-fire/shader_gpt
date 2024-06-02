@@ -68,6 +68,7 @@ public class TensorTracer: TensorContext {
 			if(o is Texture || o is Material)
 				Object.DestroyImmediate(o, true);
 		{
+			// NOTE: mipMapBias isn't recorded
 			var idx = 0;
 			foreach(var pair in rtDesc) {
 				var tex = new RenderTexture(pair.Value);
