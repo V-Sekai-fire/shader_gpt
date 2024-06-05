@@ -74,14 +74,25 @@ public class ModelImporter {
 			AssetDatabase.StopAssetEditing();
 		}
 		
-		var go = new GameObject(Path.GetFileName(folder), typeof(BasicLM));
-		var gpt = go.GetComponent<BasicLM>();
-		gpt.shaders = GetShaders();
-		gpt.textures = texturePaths.Select(path => AssetDatabase.LoadAssetAtPath<Texture>(path)).ToArray();
-		gpt.configJson = configJson;
-		gpt.tokenizerJson = tokenizerJson;
-		gpt.testcaseJson = testcaseJson;
-		return gpt;
+		if(model_type == "vits") {
+			var go = new GameObject(Path.GetFileName(folder), typeof(BasicTTS));
+			var vits = go.GetComponent<BasicTTS>();
+			vits.shaders = GetShaders();
+			vits.textures = texturePaths.Select(path => AssetDatabase.LoadAssetAtPath<Texture>(path)).ToArray();
+			vits.configJson = configJson;
+			vits.tokenizerJson = tokenizerJson;
+			vits.testcaseJson = testcaseJson;
+			return vits;
+		} else {
+			var go = new GameObject(Path.GetFileName(folder), typeof(BasicLM));
+			var lm = go.GetComponent<BasicLM>();
+			lm.shaders = GetShaders();
+			lm.textures = texturePaths.Select(path => AssetDatabase.LoadAssetAtPath<Texture>(path)).ToArray();
+			lm.configJson = configJson;
+			lm.tokenizerJson = tokenizerJson;
+			lm.testcaseJson = testcaseJson;
+			return lm;
+		}
 	}
 	static void SetModelCompression(string folder, DataType dtype) {
 		var texturePaths = GetTexturePaths(folder);

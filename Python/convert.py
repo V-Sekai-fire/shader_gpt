@@ -108,6 +108,13 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 	with open(folder/"config.json", "w") as f:
 		json.dump(model.config.to_dict(), f, indent=2, sort_keys=True)
 
+	# apply weight parametrizations (in vits)
+	for name, layer in model.named_modules():
+		parametrizations = getattr(layer, "parametrizations", None)
+		if isinstance(parametrizations, torch.nn.ModuleDict):
+			for key in list(parametrizations):
+				torch.nn.utils.parametrize.remove_parametrizations(layer, key)
+
 	gptq_layers = {}
 	unpack = lambda x: unpack_gptq(gptq_layers[id(x)]) if id(x) in gptq_layers else x
 
@@ -195,6 +202,15 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 			else:
 				continue
 			del state_dict[name]
+	elif model_type in ["vits"]:
+		for name, data in list(state_dict.items()):
+			if name in ["text_encoder.embed_tokens.weight", "text_encoder.project.weight"]:
+				state_dict[f"{name}.T"] = unpack(data).transpose(0,1)
+			elif m := re.fullmatch(r".*attention[.]emb_rel_[kv]", name):
+				state_dict[f"{m[0]}.weight"] = unpack(data).squeeze(0)
+			elif re.fullmatch(r"(text_encoder|flow|decoder).*", name):
+				continue
+			del state_dict[name]
 	else:
 		raise NotImplementedError(f"{model_type=}")
 
@@ -260,26 +276,34 @@ def export_tokenizer(tokenizer, folder):
 		fast_tokenizer = tokenizer.backend_tokenizer
 	else:
 		from transformers.convert_slow_tokenizer import convert_slow_tokenizer
-		fast_tokenizer = convert_slow_tokenizer(tokenizer)
-	model = fast_tokenizer.model
-	pre_tokenizer = fast_tokenizer.pre_tokenizer
+		try:
+			fast_tokenizer = convert_slow_tokenizer(tokenizer)
+		except ValueError:
+			fast_tokenizer = None
 
-	if type(model).__name__ == "BPE":
-		data = json.loads(fast_tokenizer.to_str())
-		merges = [x.split(" ", 1) for x in data["model"]["merges"]]
-		if pre_tokenizer is None:
-			prefix_len = len(tokenizer.decode([0]))
-			decode_token = lambda token: bytes((int(token[1:-1], 16),)) \
-				if model.byte_fallback and re.fullmatch(r"<0x[0-9A-F]{2}>", token) \
-				else tokenizer.decode([0, tokenizer.convert_tokens_to_ids(token)])[prefix_len:].encode()
-		elif type(pre_tokenizer).__name__ == "ByteLevel" or type(fast_tokenizer.decoder).__name__ == "ByteLevel":
-			from transformers.models.gpt2.tokenization_gpt2 import bytes_to_unicode
-			byte_decoder = {c: b for b, c in bytes_to_unicode().items()}
-			decode_token = lambda token: bytes(byte_decoder[c] for c in token)
-		else:
-			raise NotImplementedError(f"pre_tokenizer={type(pre_tokenizer)}, decoder={type(fast_tokenizer.decoder)} is not supported")
+	if fast_tokenizer is None:
+		merges = []
+		decode_token = lambda token: token.encode()
 	else:
-		raise NotImplementedError(f"model {type(model)} is not supported")
+		model = fast_tokenizer.model
+		pre_tokenizer = fast_tokenizer.pre_tokenizer
+
+		if type(model).__name__ == "BPE":
+			data = json.loads(fast_tokenizer.to_str())
+			merges = [x.split(" ", 1) for x in data["model"]["merges"]]
+			if pre_tokenizer is None:
+				prefix_len = len(tokenizer.decode([0]))
+				decode_token = lambda token: bytes((int(token[1:-1], 16),)) \
+					if model.byte_fallback and re.fullmatch(r"<0x[0-9A-F]{2}>", token) \
+					else tokenizer.decode([0, tokenizer.convert_tokens_to_ids(token)])[prefix_len:].encode()
+			elif type(pre_tokenizer).__name__ == "ByteLevel" or type(fast_tokenizer.decoder).__name__ == "ByteLevel":
+				from transformers.models.gpt2.tokenization_gpt2 import bytes_to_unicode
+				byte_decoder = {c: b for b, c in bytes_to_unicode().items()}
+				decode_token = lambda token: bytes(byte_decoder[c] for c in token)
+			else:
+				raise NotImplementedError(f"pre_tokenizer={type(pre_tokenizer)}, decoder={type(fast_tokenizer.decoder)} is not supported")
+		else:
+			raise NotImplementedError(f"model {type(model)} is not supported")
 
 	vocab = [tokenizer.convert_ids_to_tokens(i) for i in range(len(tokenizer.get_vocab()))]
 	merges = [tokenizer.convert_tokens_to_ids(x) for x in merges]
@@ -290,20 +314,21 @@ def export_tokenizer(tokenizer, folder):
 	merges = [f"{vocab[i]} {vocab[j]}" for i, j in merges]
 
 	chat_templates = {}
-	messages = [
-		{"role": "system", "content": "{0}"},
-		{"role": "user", "content": "{0}"},
-		{"role": "assistant", "content": "{0}"},
-	]
-	try:
-		tokenizer.apply_chat_template(messages[:1], tokenize=False)
-	except: # system role is not supported
-		messages = (messages[1:]*2)[:3]
-	last_text = ""
-	for i in range(3):
-		text = tokenizer.apply_chat_template(messages[:i+1], tokenize=False)
-		chat_templates[messages[i]["role"]] = text[len(last_text):]
-		last_text = text
+	if tokenizer.chat_template is not None:
+		messages = [
+			{"role": "system", "content": "{0}"},
+			{"role": "user", "content": "{0}"},
+			{"role": "assistant", "content": "{0}"},
+		]
+		try:
+			tokenizer.apply_chat_template(messages[:1], tokenize=False)
+		except: # system role is not supported
+			messages = (messages[1:]*2)[:3]
+		last_text = ""
+		for i in range(3):
+			text = tokenizer.apply_chat_template(messages[:i+1], tokenize=False)
+			chat_templates[messages[i]["role"]] = text[len(last_text):]
+			last_text = text
 
 	# workaround for broken json parser
 	escape_brackets = lambda lst: [re.sub(r'[\[\]\{\}]', lambda m: f"\\u{ord(m.group()) :04X}", x) for x in lst]
@@ -346,7 +371,7 @@ def export_testcase(model, tokenizer, folder, force_write=False):
 		), f)
 
 def main():
-	from transformers import AutoModelForCausalLM, AutoTokenizer
+	from transformers import AutoModelForCausalLM, AutoModelForTextToWaveform, AutoTokenizer
 	import argparse
 	parser = argparse.ArgumentParser()
 	parser.add_argument('model', help='model id or path. for example: roneneldan/TinyStories-1M')
@@ -364,13 +389,24 @@ def main():
 		folder /= Path(args.model).name
 	print(f"convert: {args.model} => {folder}")
 	disable_exllama()
-	model = AutoModelForCausalLM.from_pretrained(args.model, device_map=args.device or None, trust_remote_code=args.trust)
-	tokenizer = AutoTokenizer.from_pretrained(args.tokenizer or args.model)
-	quantize = (lambda name, shape: np.prod(shape) >= args.quantize*1024*1024) if args.quantize else None
-	print(f"model: {type(model)}")
-	export_lm(model, folder, force_write=bool(args.force), quantize=quantize)
-	export_tokenizer(tokenizer, folder)
-	export_testcase(model, tokenizer, folder, force_write=bool(args.force))
+	errs = []
+	for auto_cls in [AutoModelForCausalLM, AutoModelForTextToWaveform]:
+		try:
+			model = auto_cls.from_pretrained(args.model, device_map=args.device or None, trust_remote_code=args.trust)
+		except ValueError as e:
+			errs.append(e)
+			continue
+		else:
+			tokenizer = AutoTokenizer.from_pretrained(args.tokenizer or args.model)
+			quantize = (lambda name, shape: np.prod(shape) >= args.quantize*1024*1024) if args.quantize else None
+			print(f"model: {type(model)}")
+			export_lm(model, folder, force_write=bool(args.force), quantize=quantize)
+			export_tokenizer(tokenizer, folder)
+			if auto_cls == AutoModelForCausalLM:
+				export_testcase(model, tokenizer, folder, force_write=bool(args.force))
+			return
+	for e in errs:
+		print(e)
 
 if __name__ == '__main__':
 	with torch.no_grad():

@@ -31,7 +31,6 @@ public class BasicLM : MonoBehaviour {
 		set { nn.ctx = value; }
 	}
 	private ModelForCausalLM model;
-	private PretrainedConfig config;
 	private Tokenizer tokenizer;
 
 	private List<int> tokens;
@@ -45,7 +44,6 @@ public class BasicLM : MonoBehaviour {
 		};
 		model = AutoModelForCausalLM.FromPretrained(nn, configJson, textures);
 		model.generation_config = generationConfig;
-		config = JsonUtility.FromJson<PretrainedConfig>(configJson.text);
 		tokenizer = JsonUtility.FromJson<Tokenizer>(tokenizerJson.text);
 		var testcase = testcaseJson ? JsonUtility.FromJson<Testcase>(testcaseJson.text) : null;
 
@@ -137,7 +135,7 @@ public class BasicLM : MonoBehaviour {
 		nn.Copy(input, next_tokens);
 		ctx.Release(next_tokens);
 	}
-	
+
 	Texture InputTensor(IList<int> input_ids, int position_id=0) {
 		var n = input_ids.Count-position_id;
 		var inputData = new float[n*4];

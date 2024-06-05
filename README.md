@@ -24,7 +24,8 @@ The following architectures are supported:
 [Qwen2](https://huggingface.co/docs/transformers/main/en/model_doc/qwen2),
 [Gemma](https://huggingface.co/docs/transformers/main/en/model_doc/gemma),
 [Phi3](https://huggingface.co/docs/transformers/main/en/model_doc/phi3),
-OpenELM (experimental)
+OpenELM (experimental),
+[VITS](https://huggingface.co/docs/transformers/main/en/model_doc/vits) (experimental)
 
 The following quantizations are supported:
 
@@ -42,6 +43,7 @@ The following models are tested:
 * [gemma-2b-it](https://huggingface.co/google/gemma-2b-it) (Gemma)
 * [OpenELM-270M-Instruct](https://huggingface.co/apple/OpenELM-270M-Instruct) (OpenELM)
 * [Phi-3-mini-4k-instruct](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct) (Phi3)
+* [mms-tts-eng](https://huggingface.co/facebook/mms-tts-eng) (VITS)
 
 ## Import a model
 
