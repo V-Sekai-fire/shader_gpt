@@ -152,7 +152,7 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 	if model_type in ["gpt2", "gpt_neo"]:
 		for name, data in list(state_dict.items()):
 			if name in ["transformer.wte.weight", "transformer.wpe.weight", "lm_head.weight"]:
-				if name == "lm_head.weight" and torch.allclose(unpack(data), model.state_dict()["transformer.wte.weight"]):
+				if name == "lm_head.weight" and torch.allclose(data, model.state_dict()["transformer.wte.weight"]):
 					pass # skip duplicate weights to save space
 				else:
 					state_dict[f"{name}.T"] = unpack(data).T
@@ -175,7 +175,10 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 	elif model_type in ["gemma", "llama", "mistral", "phi", "phi3", "qwen2", "stablelm"]:
 		for name, data in list(state_dict.items()):
 			if name in ["model.embed_tokens.weight", "lm_head.weight"]:
-				state_dict[f"{name}.T"] = unpack(data).T
+				if name == "lm_head.weight" and torch.allclose(data, model.state_dict()["model.embed_tokens.weight"]):
+					pass # skip duplicate weights to save space
+				else:
+					state_dict[f"{name}.T"] = unpack(data).T
 			else:
 				if m := re.fullmatch(r"(.*[.]\d+[.]self_attn)[.]([qkv]_proj[.](weight|bias)|o_proj[.]weight)", name):
 					head_dim = getattr(model.get_submodule(m[1]), "head_dim", 0)

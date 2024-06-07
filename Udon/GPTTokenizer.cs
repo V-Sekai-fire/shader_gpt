@@ -47,7 +47,7 @@ public class GPTTokenizer : MonoBehaviour
 #endif
 	}
 
-	void OnEnable() {
+	public void OnEnable() {
 		if(vocab == null)
 			LoadTokenizer();
 	}

@@ -35,7 +35,8 @@ public abstract class Module {
 		return x;
 	}
 	protected void FixSize0(string name, int size0) {
-		ctx.FixSize0(state_dict[name], size0);
+		if(state_dict.TryGetValue(name, out var tensor)) // in case a fallback is used
+			ctx.FixSize0(tensor, size0);
 		if(state_dict.TryGetValue(name+".q8", out var quantizer))
 			ctx.FixSize0(quantizer, (size0+3)/4);
 		if(state_dict.TryGetValue(name+".q8.idx", out var permuter))

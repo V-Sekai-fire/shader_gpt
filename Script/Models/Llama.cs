@@ -76,7 +76,7 @@ public class Llama : ModelForCausalLM<LlamaConfig> {
 	(Texture, Texture) LlamaForCausalLM(Texture input_ids) {
 		FixSize0("lm_head.weight.T", config.hidden_size);
 		var hidden_states = LlamaModel("model", input_ids);
-		var logits = Linear("lm_head", hidden_states);
+		var logits = Linear("lm_head", hidden_states, fallback:"model.embed_tokens");
 		return (hidden_states, logits);
 	}
 }

@@ -27,10 +27,6 @@ public class GPTPipeline : MonoBehaviour
 		generator.eventMethod = nameof(OnOutputToken);
 		
 		generator.inputTokens = tokenizer.Encode(inputText.text);
-		// var sb = "";
-		// foreach(var token in generator.inputTokens)
-		// 	sb = string.Format("{0}{1}, ", sb, token);
-		// Debug.Log(string.Format("inputTokens = {0}", sb));
 		generator.inputIndex = 0;
 		tokenizer.decodeState = 0;
 		outputText.text = "";

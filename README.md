@@ -37,7 +37,7 @@ The following models are tested:
 * [pythia-70m-deduped](https://huggingface.co/EleutherAI/pythia-70m-deduped) (GPT-NeoX)
 * [Minueza-32M-UltraChat](https://huggingface.co/Felladrin/Minueza-32M-UltraChat) (Mistral)
 * [LaMini-GPT-124M](https://huggingface.co/MBZUAI/LaMini-GPT-124M) (GPT2)
-* [Qwen1.5-0.5B-Chat](https://huggingface.co/Qwen/Qwen1.5-0.5B-Chat) (Qwen2)
+* [Qwen2-0.5B-Instruct](https://huggingface.co/Qwen/Qwen2-0.5B-Instruct) (Qwen2)
 * [TinyLlama-1.1B-Chat-v1.0](https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0) (Llama2)
 * [phi-1_5](https://huggingface.co/microsoft/phi-1_5) (Phi)
 * [gemma-2b-it](https://huggingface.co/google/gemma-2b-it) (Gemma)
