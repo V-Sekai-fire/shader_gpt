@@ -1,7 +1,7 @@
 Shader "GPT/Scatter" {
 Properties {
 	_OutputDim("_OutputDim", Vector) = (1, 1, 0, 0)
-	_InputDim ("_InputDim",  Vector) = (0, 0, 0, 0) // zero = use constant
+	_InputDim ("_InputDim",  Vector) = (0, 0, 0, 0) // x=0: use constant
 	_IndexDim ("_IndexDim",  Vector) = (1, 1, 0, 0)
 	[HideInInspector]
 	_OutputTex("_OutputTex", 2D) = "black" {}
@@ -22,14 +22,12 @@ DEFINE_TEXTURE2D(_InputTex); uint4 _InputDim;
 DEFINE_TEXTURE2D(_IndexTex); uint4 _IndexDim;
 uniform float4 _Input;
 uniform uint _IndexChan;
-uniform uint _BatchOff;
 uniform uint _ColorMask;
 
 struct GeomInput {};
 struct GeomOutput { float4 posCS : SV_Position; };
 void vert() {}
 
-static const uint batchSize = 4096;
 static const uint instanceCount = 32;
 static const uint geometryCount = 64;
 [maxvertexcount(geometryCount*4)]
@@ -38,9 +36,6 @@ void geom(triangle GeomInput input[3], inout TriangleStream<GeomOutput> stream, 
 	GeomOutput o;
 	for(uint i = 0; i < geometryCount; i++) {
 		uint src = (primitiveId * instanceCount + instanceId) * geometryCount + i;
-		if(src >= batchSize)
-			return;
-		src += _BatchOff;
 		uint payload = src;
 		float4 aabb = float4(0,0,1,1);
 #ifdef AXIS_LAST

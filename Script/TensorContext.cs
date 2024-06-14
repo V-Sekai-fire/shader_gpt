@@ -28,8 +28,8 @@ public class TensorContext {
 	public int Lod(TexView view) => (view.data.t.mipmapCount-1);
 	public Vector2Int Size(TexView view) => new Vector2Int(Size0(view), Size1(view));
 	public VertexAttributeFormat DType(TexView view) => graphicsFormatToDType[view.data.t.graphicsFormat];
-	public TexView Slice(Texture tex, int size0, int size1, int off0=0, int off1=0) =>
-		new TexView(tex, size0, size1, off0, off1);
+	public TexView Slice(TexView view, int size0, int size1, int off0=0, int off1=0) =>
+		new TexView(view.data.t, size0, size1, view.data.o0+off0, view.data.o1+off1);
 
 	public void FixSize0(Texture tex, int size0) {
 		var h = tex.height >> (tex.mipmapCount-1);

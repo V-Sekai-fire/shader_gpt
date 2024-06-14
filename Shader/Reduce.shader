@@ -46,7 +46,7 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 	// output[i,j].xz = torch.min(input[i,j*K+k][c], dim=(k,c))
 	// output[i,j].yw = torch.max(input[i,j*K+k][c], dim=(k,c))
 
-	uint K = 1+(_InputDim.y-1)/_OutputDim.y, jK = pos.y*K;
+	uint K = (_InputDim.y+_OutputDim.y-1)/_OutputDim.y, jK = pos.y*K;
 	int2 range = _Window.xy + dot(_Window.zw, LOAD_TENSOR(_Window, uint2(min(_WindowDim.x-1, pos.x), 0)).xy);
 	#if defined(REDUCE_SUMPOW)
 		float4 O = 0;
@@ -55,7 +55,7 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 	#elif defined(REDUCE_MINMAX)
 		float4 O = float4(+oo, -oo, 0, 0);
 	#endif
-	K = min(K, uint(max(0, int(_InputDim.y-jK)))); // handle out-of-bound read on _InputTex
+	K = min(K, uint(max(0, int(_InputDim.y-jK)))); // clamp out-of-bound read on _InputTex
 	for(uint k=threadId; k<K; k+=groupSize) {
 		float4 X = LOAD_TENSOR(_Input, uint2(pos.x, jK+k));
 		#if !defined(INPUT_REDUCED)

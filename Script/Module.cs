@@ -40,7 +40,7 @@ public abstract class Module {
 		if(state_dict.TryGetValue(name+".q8", out var quantizer))
 			ctx.FixSize0(quantizer, (size0+3)/4);
 		if(state_dict.TryGetValue(name+".q8.idx", out var permuter))
-			ctx.FixSize0(permuter, 1);
+			ctx.FixSize0(permuter, 2);
 	}
 
 	// common layers

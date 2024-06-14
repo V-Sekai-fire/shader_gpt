@@ -129,7 +129,7 @@ float4 main(uint2 pos) {
 	#endif
 
 	O = mask ? O : _Default;
-	O *= _Mul;
+	O = _Mul == 0 ? 0 : O*_Mul; // clear infinity properly if zero
 	if(_MulDim.x)
 		O *= LOAD_TENSOR(_Mul, pos.xy%_MulDim.xy);
 	O += _Add;

@@ -13,9 +13,16 @@ public class TensorNN {
 	public int reduceSplit = 64;
 
 	public Texture IndexSelect(TexView input, (TexView tex, int chan) index, bool inputT=false, bool axis1=false) {
+		if(permuters.TryGetValue((Texture)input, out var permuter)) {
+			Debug.Assert(!axis1); // only embedding is supported
+			if(inputT)
+				index = (IndexSelect(permuter, index, inputT:true), 1);
+		}
 		var size0 = !axis1 ? (index.tex ? ctx.Size0(index.tex) : index.chan) : (inputT ? (ctx.Size1(input)+3)/4 : ctx.Size0(input));
 		var size1 =  axis1 ? (index.tex ? ctx.Size1(index.tex) : index.chan) : (inputT ? (ctx.Size0(input)+3)/4 : ctx.Size1(input));
-		var output = ctx.GPUTensor(size0, size1, dtype:ctx.DType(input));
+		var output = ctx.GPUTensor(size0, size1,
+			dtype:UnityEngine.Experimental.Rendering.GraphicsFormatUtility.IsUNormFormat(((Texture)input).graphicsFormat) ?
+				(VertexAttributeFormat?)null : ctx.DType(input)); // avoid quantized type
 		var mat = ctx.Operator(kernels["Gather"]);
 		SetTensor(mat, "_Output", output);
 		if(axis1)
@@ -30,9 +37,18 @@ public class TensorNN {
 			SetTensor(mat, "_Index", index.tex);
 		mat.SetInt("_IndexChan", index.chan);
 		ctx.Blit(output, mat);
+		if(permuter) {
+			if(inputT)
+				ctx.Release((Texture)index.tex);
+			else {
+				var permOutput = IndexSelect(output, (permuter, 1), axis1:true);
+				ctx.Release(output);
+				return permOutput;
+			}
+		}
 		return output;
 	}
-	public Texture IndexCopy(RenderTexture output, (TexView tex, int chan) index, TexView input, float fill=0, bool axis1=false) {
+	public Texture IndexCopy(RenderTexture output, (TexView tex, int chan) index, TexView input, float value=0, bool axis1=false) {
 		const int batchSize = 4096;
 		Debug.Assert(!input || (axis1 ? ctx.Size1(index.tex) == ctx.Size1(input) : ctx.Size0(index.tex) == ctx.Size0(input)));
 		var count = axis1 ? ctx.Size1(index.tex)*4 : ctx.Size0(index.tex);
@@ -43,11 +59,16 @@ public class TensorNN {
 			if(axis1)
 				EnableOption(mat, Keyword.AXIS_LAST);
 			if(input)
-				SetTensor(mat, "_Input", input);
-			mat.SetVector("_Input", fill * Vector4.one);
-			if(index.tex)
-				SetTensor(mat, "_Index", index.tex);
-			mat.SetInt("_BatchOff", off);
+				SetTensor(mat, "_Input", axis1
+					? ctx.Slice(input, ctx.Size0(input), Mathf.Min(ctx.Size1(input)-off/4, batchSize/4), 0, off/4)
+					: ctx.Slice(input, Mathf.Min(ctx.Size0(input)-off, batchSize), ctx.Size1(input), off, 0));
+			else 
+				mat.SetVector("_Input", value * Vector4.one);
+			var intex = index.tex;
+			if(intex)
+				SetTensor(mat, "_Index", axis1
+					? ctx.Slice(intex, ctx.Size0(intex), Mathf.Min(ctx.Size1(intex)-off/4, batchSize/4), 0, off/4)
+					: ctx.Slice(intex, Mathf.Min(ctx.Size0(intex)-off, batchSize), ctx.Size1(intex), off, 0));
 			mat.SetInt("_IndexChan", index.chan);
 			mat.SetInt("_ColorMask", mask);
 			ctx.Blit(output, mat);
@@ -57,10 +78,11 @@ public class TensorNN {
 	public Texture Linear(TexView input, TexView weight, TexView bias=default, bool weightT=false, int heads=1, int weightHeads=0) {
 		if(weightHeads == 0)
 			weightHeads = heads;
-		if(permuters.TryGetValue((Texture)weight, out var permuter))
-			Debug.Assert(heads == 1 && weightHeads == 1 && !weightT);
-		if(permuter && !weightT)
-			input = IndexSelect(input, (permuter, 0), axis1:true);
+		if(permuters.TryGetValue((Texture)weight, out var permuter)) {
+			Debug.Assert(heads == 1 && weightHeads == 1);
+			if(!weightT)
+				input = IndexSelect(input, (permuter, 0), axis1:true);
+		}
 		var idim = !weightT ? ctx.Size1(weight)/weightHeads : (ctx.Size0(weight)+3)/4;
 		var odim =  weightT ? ctx.Size1(weight)/weightHeads : (ctx.Size0(weight)+3)/4;
 		Debug.Assert(ctx.Size1(input) == heads*idim && ctx.Size1(weight)%weightHeads == 0 && heads%weightHeads == 0);
@@ -78,8 +100,15 @@ public class TensorNN {
 		if(bias)
 			SetTensor(mat, "_Bias", bias);
 		ctx.Blit(output, mat);
-		if(permuter && !weightT)
-			ctx.Release((Texture)input);
+		if(permuter) {
+			if(!weightT)
+				ctx.Release((Texture)input);
+			else {
+				var permOutput = IndexSelect(output, (permuter, 1), axis1:true);
+				ctx.Release(output);
+				return permOutput;
+			}
+		}
 		return output;
 	}
 	Texture _Reduce(TexView input, Keyword func, int groups=1, float scale=1f,
@@ -148,10 +177,10 @@ public class TensorNN {
 		return output;
 	}
 	public Texture Fusion(TexView input, float scale=1f, float bias=0f, TexView mul=default, TexView add=default, Keyword func=0, float eps=0,
-			(Vector4,Texture)? window=null, Vector4 @default=default) {
+			(Vector4,Texture)? window=null, Vector4 @default=default, VertexAttributeFormat? dtype=null) {
 		Debug.Assert(!mul || (ctx.Size0(input) % ctx.Size0(mul) == 0 && ctx.Size1(input) % ctx.Size1(mul) == 0));
 		Debug.Assert(!add || (ctx.Size0(input) % ctx.Size0(add) == 0 && ctx.Size1(input) % ctx.Size1(add) == 0));
-		var output = ctx.GPUTensor(ctx.Size0(input), ctx.Size1(input), dtype:ctx.DType(input));
+		var output = ctx.GPUTensor(ctx.Size0(input), ctx.Size1(input), dtype:dtype??ctx.DType(input));
 		var mat = ctx.Operator(kernels["Function"]);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);

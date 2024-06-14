@@ -5,6 +5,7 @@ import math
 import re
 import json
 import torch
+import torch.nn.functional as F
 import numpy as np
 import cv2
 from pathlib import Path
@@ -25,30 +26,34 @@ def imwrite(path, data):
 def pad_align(data, align):
 	return np.pad(data, [(0,(-n)%m) for n, m in zip(data.shape, align)])
 
-def export_custom_int8(data, asym=True, group_size=4, *, estep=2, exact=False):
+def export_custom_int8(data, asym=True, group_size=4, *, estep=2, exact=False, act_order=True):
+	data = F.pad(data, (0,-data.shape[-1] % group_size)) # must pad before sorting
+	indices = None
+	if act_order:
+		indices = torch.argsort(torch.linalg.norm(data, ord=1, dim=0), stable=True, descending=True)
+		data = data[:,indices]
+		indices = torch.stack((indices, torch.argsort(indices))).float().cpu().numpy() # use float for int indices
+	data = data.reshape(data.shape[0], -1, group_size)
+
 	presets = [(-127/256, +127/256, 0)] + ([(-63/256, +191/256, +85), (-191/256, +63/256, -85)] if asym else [])
-	bmin, bmax, eoff = np.array(presets, dtype=data.dtype).T[..., None, None, None]
+	bmin, bmax, eoff = torch.tensor(presets, dtype=data.dtype, device=data.device).T[..., None, None, None]
+	expo = torch.clip(torch.ceil(estep*torch.log2(torch.maximum(
+		torch.clip(torch.amin(data, dim=-1, keepdims=True), max=0)/bmin,
+		torch.clip(torch.amax(data, dim=-1, keepdims=True), min=0)/bmax))), -42, 42)
 
-	shape1 = (data.shape[1]+3)&~3
-	data = pad_align(data, [1, group_size]).reshape(data.shape[0], -1, group_size)
-
-	expo = np.clip(np.ceil(estep*np.log2(np.maximum(
-		np.minimum(0, np.amin(data, axis=-1, keepdims=True))/bmin,
-		np.maximum(0, np.amax(data, axis=-1, keepdims=True))/bmax))), -42, 42)
-
-	scale = np.exp2(expo/estep, dtype=(np.float32 if exact else data.dtype))
-	mant = np.clip(data/scale, bmin, bmax)
-	qerr = np.amax(np.abs(np.round(mant*256)/256 * scale - data), axis=-1, keepdims=True)
-	best = np.argmin(qerr, axis=0, keepdims=True)
-	expo = np.take_along_axis(expo+eoff, best, axis=0)[0]
-	mant = np.take_along_axis(mant, best, axis=0)[0]
+	scale = torch.exp2((expo/estep).to(torch.float32 if exact else data.dtype))
+	mant = torch.clip(data/scale, bmin, bmax)
+	qerr = torch.amax(torch.abs(torch.round(mant*256)/256 * scale - data), dim=-1, keepdims=True)
+	best = torch.argmin(qerr, dim=0, keepdims=True)
+	expo = torch.take_along_dim(expo+eoff, best, dim=0)[0]
+	mant = torch.take_along_dim(mant, best, dim=0)[0]
 	mant /= 255/256
-	mant += np.where(mant < -1/510, 1, 0)
+	mant += torch.where(mant < -1/510, 1, 0)
 
-	mant = mant.reshape(mant.shape[0], -1)[:, :shape1]
-	expo = pad_align(expo, [4, 1, 1]).reshape(-1, 4, expo.shape[1]).transpose(0,2,1)
-	expo = expo.reshape(expo.shape[0], -1)[:, :shape1]
-	return mant, expo.astype(np.int8).astype(np.uint8)
+	mant = mant.reshape(mant.shape[0], -1).cpu().numpy()
+	expo = F.pad(expo, (0,0,0,0,0,-expo.shape[-3] % 4)).reshape(-1, 4, expo.shape[1]).permute(0,2,1)
+	expo = expo.reshape(expo.shape[0], -1).cpu().numpy()
+	return mant, expo.astype(np.int8).astype(np.uint8), indices
 
 def disable_exllama():
 	from transformers import GPTQConfig
@@ -95,7 +100,7 @@ def export_gptq(layer):
 
 	if indices is not None:
 		weight = weight[indices,:]
-		indices = indices.float().cpu().numpy() # use float for int indices
+		indices = torch.stack((indices, torch.argsort(indices))).float().cpu().numpy() # use float for int indices
 	weight = weight.transpose(0,1).cpu().numpy()
 	scales = scales.transpose(0,1).cpu().numpy()
 	scales = pad_align(scales, [4, 1]).reshape(-1, 4, scales.shape[1]).transpose(0,2,1)
@@ -151,7 +156,7 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 	model_type = model.config.model_type
 	if model_type in ["gpt2", "gpt_neo"]:
 		for name, data in list(state_dict.items()):
-			if name in ["transformer.wte.weight", "transformer.wpe.weight", "lm_head.weight"]:
+			if name in ["transformer.wte.weight", "lm_head.weight"]:
 				if name == "lm_head.weight" and torch.allclose(data, model.state_dict()["transformer.wte.weight"]):
 					pass # skip duplicate weights to save space
 				else:
@@ -232,7 +237,7 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 		if id(data) in gptq_layers:
 			filenames = (f"{name}.png", f"{name}.q8.exr", f"{name}.q8.idx.exr")
 		elif quantizable:
-			filenames = (f"{name}.exr", f"{name}.q8.png")
+			filenames = (f"{name}.exr", f"{name}.q8.png", f"{name}.q8.idx.exr")
 		else:
 			filenames = (f"{name}.exr",)
 
@@ -246,7 +251,7 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 		if id(data) in gptq_layers:
 			arrays = export_gptq(gptq_layers[id(data)])
 		elif quantizable:
-			arrays = export_custom_int8(data.cpu().numpy())
+			arrays = export_custom_int8(data)
 		else:
 			arrays = (data.cpu().numpy(),)
 		for filename, array in zip(filenames, arrays):
