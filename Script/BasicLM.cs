@@ -63,7 +63,7 @@ public class BasicLM : MonoBehaviour {
 		} else if(task == Task.Test) {
 			Debug.Log($"Testing {this.name} ({model})");
 			Test(testcase);
-			Debug.Assert(ctx.TensorCount() == 0);
+			Debug.Assert(ctx.TensorCount() == model.cache.Count);
 		} else if(task == Task.Bake) {
 #if UNITY_EDITOR
 			var path = System.IO.Path.GetDirectoryName(AssetDatabase.GetAssetPath(configJson)) + ".prefab";
@@ -71,14 +71,14 @@ public class BasicLM : MonoBehaviour {
 
 			ctx = new TensorTracer();
 			Bake();
-			Debug.Assert(ctx.TensorCount() == 0);
+			Debug.Assert(ctx.TensorCount() == model.cache.Count);
 			EditorGUIUtility.PingObject(((TensorTracer)ctx).Export(path));
 #endif
 		}
 		RenderTexture.active = null; // suppress warning
 	}
 	public void OnDisable() {
-		ctx.ReleasePersistent();
+		model.CacheClear();
 	}
 	public void Update() {
 		if(task == Task.Run) {
@@ -89,7 +89,7 @@ public class BasicLM : MonoBehaviour {
 			nextTime = Time.time + interval;
 			
 			var token = Run(positionId);
-			Debug.Assert(ctx.TensorCount() == 0);
+			Debug.Assert(ctx.TensorCount() == model.cache.Count);
 			positionId = tokens.Count;
 			tokens.Add(token);
 			if(outputText)
@@ -104,14 +104,13 @@ public class BasicLM : MonoBehaviour {
 		{typeof(Models.GPTNeoX), (6e-3f, 6e-3f)},
 		{typeof(Models.Llama), (1e-4f, 4e-5f)},
 		{typeof(Models.Phi), (3e-5f, 5e-5f)},
-		{typeof(Models.Phi3), (3e-4f, 8e-5f)},
 		{typeof(Models.OpenELM), (4e-5f, 1e-4f)},
 	};
 	int Run(int positionId) {
 		var input = InputTensor(tokens, positionId);
-		var (hidden_states, logits) = model.ForCausalLM(input);
-		ctx.Release(hidden_states);
-		var next_tokens = model.Generate(input, ref logits);
+		var output = model.ForCausalLM(input);
+		ctx.Release(output.hidden_states);
+		var next_tokens = model.Generate(input, ref output.logits);
 		ctx.Release(input);
 		var data = ctx.GetData((RenderTexture)next_tokens);
 		ctx.Release(next_tokens);
@@ -120,20 +119,21 @@ public class BasicLM : MonoBehaviour {
 	void Test(Testcase testcase) {
 		var (hidden_states_err, logits_err) = testErrMap[model.GetType()];
 		var input = InputTensor(testcase.input_ids);
-		var (hidden_states, logits) = model.ForCausalLM(input);
+		var output = model.ForCausalLM(input);
 		ctx.Release(input);
-		AssertData((RenderTexture)hidden_states, -1, testcase.hidden_states, hidden_states_err);
-		AssertData((RenderTexture)logits, -1, testcase.logits, logits_err);
-		ctx.Release(hidden_states);
-		ctx.Release(logits);
+		AssertData((RenderTexture)output.hidden_states, -1, testcase.hidden_states, hidden_states_err);
+		AssertData((RenderTexture)output.logits, -1, testcase.logits, logits_err);
+		ctx.Release(output.hidden_states);
+		ctx.Release(output.logits);
 	}
 	void Bake() {
-		var input = ctx.PersistentGPUTensor("input", 1, 1);
-		var (hidden_states, logits) = model.ForCausalLM(input);
-		ctx.Release(hidden_states);
-		var next_tokens = model.Generate(input, ref logits);
+		var input = ctx.GPUTensor(1, 1);
+		var output = model.ForCausalLM(input);
+		ctx.Release(output.hidden_states);
+		var next_tokens = model.Generate(input, ref output.logits);
 		nn.Copy(input, next_tokens);
 		ctx.Release(next_tokens);
+		ctx.Release(input);
 	}
 
 	Texture InputTensor(IList<int> input_ids, int position_id=0) {

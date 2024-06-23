@@ -25,10 +25,8 @@ public class GPT2 : ModelForCausalLM<GPT2Config> {
 		var k = ctx.Slice(qkv, ctx.Size0(qkv), config.hidden_size/4, 0, config.hidden_size/4);
 		var v = ctx.Slice(qkv, ctx.Size0(qkv), config.hidden_size/4, 0, config.hidden_size/2);
 
-		var keys   = ctx.PersistentGPUTensor($"{path}.k", max_length, ctx.Size1(k), dtype:ctx.DType(k));
-		var values = ctx.PersistentGPUTensor($"{path}.v", max_length, ctx.Size1(v), dtype:ctx.DType(v));
-		nn.IndexCopy(keys,   (input_ids, 1), k);
-		nn.IndexCopy(values, (input_ids, 1), v);
+		var keys   = CacheUpdate($"{path}.k", (input_ids, 1), k);
+		var values = CacheUpdate($"{path}.v", (input_ids, 1), v);
 
 		var window_size = config.max_position_embeddings;
 		var norm_factor = 1f / Mathf.Sqrt(config.hidden_size / config.num_attention_heads);
@@ -63,7 +61,7 @@ public class GPT2 : ModelForCausalLM<GPT2Config> {
 	(Texture, Texture) GPT2LMHeadModel(Texture input_ids) {
 		var hidden_states = GPT2Model("transformer", input_ids);
 		var logits = Linear("lm_head", hidden_states, fallback:"transformer.wte");
-		return (hidden_states, logits);
+		return (logits, hidden_states);
 	}
 }
 }

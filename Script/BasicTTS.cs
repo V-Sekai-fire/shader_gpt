@@ -63,7 +63,6 @@ public class BasicTTS : MonoBehaviour {
 		RenderTexture.active = null; // suppress warning
 	}
 	public void OnDisable() {
-		ctx.ReleasePersistent();
 		if(outputSource && outputSource.clip)
 			Object.Destroy(outputSource.clip);
 	}
@@ -139,7 +138,7 @@ public class BasicTTS : MonoBehaviour {
 		var inputs = ctx.CPUTensor(max_length, 1);
 		var indices = ctx.CPUTensor(max_index_length, 1);
 		var lengths = ctx.CPUTensor(1, 1);
-		var waveform = ctx.PersistentGPUTensor("waveform", max_waveform_length/65536, 16384);
+		var waveform = ctx.GPUTensor(max_waveform_length/65536, 16384);
 		nn.Copy(ctx.Slice(waveform,  1, 1), ctx.Slice(inputs,  1, 1));
 		nn.Copy(ctx.Slice(waveform,  1, 1), ctx.Slice(indices, 1, 1));
 		nn.Copy(ctx.Slice(waveform,  1, 1), ctx.Slice(lengths, 1, 1));
@@ -155,6 +154,7 @@ public class BasicTTS : MonoBehaviour {
 		ctx.Release(o.hidden_states);
 		ctx.Release(o.spectrogram);
 		ctx.Release(o.waveform);
+		ctx.Release(waveform);
 	}
 
 	Texture InputTensor(IList<int> input_ids, int position_id=0) {

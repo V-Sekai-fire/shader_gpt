@@ -25,10 +25,8 @@ public class GPTNeo : ModelForCausalLM<GPTNeoConfig> {
 		var value = Linear($"{path}.v_proj", hidden_states);
 		ctx.Release(hidden_states);
 
-		var keys   = ctx.PersistentGPUTensor($"{path}.k", max_length, ctx.Size1(key), dtype:ctx.DType(key));
-		var values = ctx.PersistentGPUTensor($"{path}.v", max_length, ctx.Size1(value), dtype:ctx.DType(value));
-		BatchRelease(nn.IndexCopy(keys,   (input_ids, 1), MarkRelease(key)));
-		BatchRelease(nn.IndexCopy(values, (input_ids, 1), MarkRelease(value)));
+		var keys   = BatchRelease(CacheUpdate($"{path}.k", (input_ids, 1), MarkRelease(key)));
+		var values = BatchRelease(CacheUpdate($"{path}.v", (input_ids, 1), MarkRelease(value)));
 
 		var window_size = config.attention_layers[layer_id] == "local" ? config.window_size : config.max_position_embeddings;
 		var norm_factor = 1f;
@@ -63,7 +61,7 @@ public class GPTNeo : ModelForCausalLM<GPTNeoConfig> {
 	(Texture, Texture) GPTNeoForCausalLM(Texture input_ids) {
 		var hidden_states = GPTNeoModel("transformer", input_ids);
 		var logits = Linear("lm_head", hidden_states, fallback:"transformer.wte");
-		return (hidden_states, logits);
+		return (logits, hidden_states);
 	}
 }
 }

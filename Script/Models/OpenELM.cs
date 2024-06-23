@@ -41,11 +41,8 @@ public class OpenELM : ModelForCausalLM<OpenELMConfig> {
 		query = BatchRelease(nn.Rotary(MarkRelease(query), rotary, groups:num_attention_heads));
 		key   = BatchRelease(nn.Rotary(MarkRelease(key),   rotary, groups:num_key_value_heads));
 		ctx.Release(rotary);
-
-		var keys   = ctx.PersistentGPUTensor($"{path}.k", max_length, ctx.Size1(key), dtype:ctx.DType(key));
-		var values = ctx.PersistentGPUTensor($"{path}.v", max_length, ctx.Size1(value), dtype:ctx.DType(value));
-		BatchRelease(nn.IndexCopy(keys,   (input_ids, 1), MarkRelease(key)));
-		BatchRelease(nn.IndexCopy(values, (input_ids, 1), MarkRelease(value)));
+		var keys   = BatchRelease(CacheUpdate($"{path}.k", (input_ids, 1), MarkRelease(key)));
+		var values = BatchRelease(CacheUpdate($"{path}.v", (input_ids, 1), MarkRelease(value)));
 
 		var window_size = config.max_position_embeddings;
 		var norm_factor = 1f / Mathf.Sqrt(head_dim);
@@ -81,7 +78,7 @@ public class OpenELM : ModelForCausalLM<OpenELMConfig> {
 	(Texture, Texture) OpenELMForCausalLM(Texture input_ids) {
 		var hidden_states = OpenELMModel("transformer", input_ids);
 		var logits = Linear("lm_head", hidden_states, fallback:"transformer.token_embeddings");
-		return (hidden_states, logits);
+		return (logits, hidden_states);
 	}
 }
 }

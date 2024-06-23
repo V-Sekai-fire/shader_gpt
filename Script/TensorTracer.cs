@@ -9,22 +9,14 @@ using UnityEditor;
 
 namespace ShaderGPT {
 public class TensorTracer: TensorContext {
-	Dictionary<string,RenderTexture> persistDict = new Dictionary<string,RenderTexture>();
 	Dictionary<int, RenderTextureDescriptor> rtDesc = new Dictionary<int, RenderTextureDescriptor>();
 	Dictionary<int, (int,int,TextureFormat)> texDesc = new Dictionary<int, (int,int,TextureFormat)>();
 	List<Material> matList = new List<Material>();
-	public override RenderTexture PersistentGPUTensor(string name, int size0, int size1, VertexAttributeFormat? dtype=null, int lod=0) {
-		if(persistDict.ContainsKey(name))
-			return persistDict[name];
-		var tex = new RenderTexture(GPUTensorDescriptor(size0, size1, dtype:dtype, lod:lod));
-		rtDesc[tex.GetInstanceID()] = tex.descriptor;
-		persistDict[name] = tex;
-		FixSize0(tex, size0);
-		return tex;
-	}
 	public override RenderTexture GPUTensor(int size0, int size1, VertexAttributeFormat? dtype=null, int lod=0, bool autoGenMips=true) {
 		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, lod:lod, autoGenMips:autoGenMips));
 		rtDesc[tex.GetInstanceID()] = tex.descriptor;
+		Debug.Assert(!texSet.Contains(tex));
+		texSet.Add(tex);
 		FixSize0(tex, size0);
 		return tex;
 	}
@@ -32,20 +24,10 @@ public class TensorTracer: TensorContext {
 		var (width, height, textureFormat) = CPUTensorDescriptor(size0, size1, dtype:dtype);
 		var tex = new Texture2D(width, height, textureFormat, mipChain:false, linear:true);
 		texDesc[tex.GetInstanceID()] = (width, height, textureFormat);
+		Debug.Assert(!texSet.Contains(tex));
+		texSet.Add(tex);
 		FixSize0(tex, size0);
 		return tex;
-	}
-	public override void Release(Texture tex) {
-		var rt = tex as RenderTexture;
-		if(rt)
-			ReleaseTemporary(rt);
-		else
-			Object.Destroy(tex);
-	}
-	public override void ReleasePersistent() {
-		foreach(var pair in persistDict)
-			Object.Destroy(pair.Value);
-		persistDict.Clear();
 	}
 	public override void Blit(RenderTexture rt, Material mat) {
 		Graphics.Blit(null, rt, mat, 0);

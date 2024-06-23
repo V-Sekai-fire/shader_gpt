@@ -26,11 +26,8 @@ public class GPTNeoX : ModelForCausalLM<GPTNeoXConfig> {
 		var query = nn.Rotary(q, rotary, groups:config.num_attention_heads);
 		var key   = nn.Rotary(k, rotary, groups:config.num_attention_heads);
 		ctx.Release(rotary);
-
-		var keys   = ctx.PersistentGPUTensor($"{path}.k", max_length, ctx.Size1(key), dtype:ctx.DType(key));
-		var values = ctx.PersistentGPUTensor($"{path}.v", max_length, ctx.Size1(v), dtype:ctx.DType(v));
-		BatchRelease(nn.IndexCopy(keys,   (input_ids, 1), MarkRelease(key)));
-		BatchRelease(nn.IndexCopy(values, (input_ids, 1), (MarkRelease(qkv), v).Item2));
+		var keys   = BatchRelease(CacheUpdate($"{path}.k", (input_ids, 1), MarkRelease(key)));
+		var values = BatchRelease(CacheUpdate($"{path}.v", (input_ids, 1), (MarkRelease(qkv), v).Item2));
 
 		var window_size = config.max_position_embeddings;
 		var norm_factor = 1f / Mathf.Sqrt(config.hidden_size / config.num_attention_heads);
@@ -64,7 +61,7 @@ public class GPTNeoX : ModelForCausalLM<GPTNeoXConfig> {
 	(Texture, Texture) GPTNeoXForCausalLM(Texture input_ids) {
 		var hidden_states = GPTNeoXModel("gpt_neox", input_ids);
 		var logits = Linear("embed_out", hidden_states);
-		return (hidden_states, logits);
+		return (logits, hidden_states);
 	}
 }
 }

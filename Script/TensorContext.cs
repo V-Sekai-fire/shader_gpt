@@ -65,20 +65,7 @@ public class TensorContext {
 	}
 
 	// tensor creation
-	HashSet<Texture> texSet = new HashSet<Texture>();
-	Dictionary<string,RenderTexture> rtDict = new Dictionary<string,RenderTexture>();
-	public virtual RenderTexture PersistentGPUTensor(string name, int size0, int size1, VertexAttributeFormat? dtype=null, int lod=0) {
-		if(rtDict.ContainsKey(name)) {
-			var rt = rtDict[name];
-			Debug.Assert(size0 == Size0(rt) && size1 == Size1(rt) && (dtype??defaultDType) == DType(rt) && lod == Lod(rt));
-			return rt;
-		}
-		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, lod:lod));
-		Debug.Assert(!texSet.Contains(tex));
-		rtDict[name] = tex;
-		FixSize0(tex, size0);
-		return tex;
-	}
+	protected HashSet<Texture> texSet = new HashSet<Texture>();
 	public virtual RenderTexture GPUTensor(int size0, int size1, VertexAttributeFormat? dtype=null, int lod=0, bool autoGenMips=true) {
 		// NOTE: autoGenMips is ignored because deferred generation is not implemented
 		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, lod:lod));
@@ -99,16 +86,10 @@ public class TensorContext {
 		Debug.Assert(tex && texSet.Contains(tex));
 		texSet.Remove(tex);
 		var rt = tex as RenderTexture;
-		if(rt) {
+		if(rt)
 			ReleaseTemporary(rt);
-			return;
-		}
-		Object.Destroy(tex);
-	}
-	public virtual void ReleasePersistent() {
-		foreach(var pair in rtDict)
-			ReleaseTemporary(pair.Value);
-		rtDict.Clear();
+		else
+			Object.Destroy(tex);
 	}
 	protected static void ReleaseTemporary(RenderTexture rt) {
 		rt.mipMapBias = 0;
