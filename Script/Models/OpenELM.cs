@@ -48,7 +48,7 @@ public class OpenELM : ModelForCausalLM<OpenELMConfig> {
 		var norm_factor = 1f / Mathf.Sqrt(head_dim);
 		var attn_scores = BatchRelease(nn.Linear(MarkRelease(query), keys, heads:num_attention_heads, weightHeads:num_key_value_heads));
 		var attn_weights = BatchRelease(nn.Softmax(MarkRelease(attn_scores), scale:norm_factor,
-			groups:num_attention_heads, window:(new Vector4(1-window_size, 1, 0, 1), input_ids)));
+			groups:num_attention_heads, window:(new Vector4(1-window_size, 1, 1, 1), input_ids)));
 		hidden_states = BatchRelease(nn.Linear(MarkRelease(attn_weights), values, heads:num_attention_heads, weightHeads:num_key_value_heads, weightT:true));
 		hidden_states = BatchRelease(Linear($"{path}.o_proj", MarkRelease(hidden_states)));
 	}

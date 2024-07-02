@@ -25,7 +25,7 @@ public abstract class ModelForCausalLM<T> : PretrainedModel<T>, ModelForCausalLM
 	void RepetitionPenaltyLogitsProcessor(Texture input_ids, ref Texture scores, float penalty, Texture last_input_ids) {
 		var inputs_T = nn.Transpose(input_ids, 1);
 		inputs_T = BatchRelease(nn.Fusion(MarkRelease(inputs_T), @default:4*ctx.Size1(scores)*Vector4.one,
-			window:(new Vector4(-max_length, ctx.Size0(last_input_ids), 0, 1), last_input_ids)));
+			window:(new Vector4(-max_length, ctx.Size0(last_input_ids), 1, 1), last_input_ids)));
 		var mask = nn.Fusion(scores, scale:0f);
 		BatchRelease(nn.IndexCopy((RenderTexture)mask, (MarkRelease(inputs_T), 0), null, 1f, axis1:true));
 		var penal = nn.Fusion(scores, func:TensorNN.Keyword.FUNC_RELU, eps:penalty*penalty, scale:1f/penalty);
@@ -38,7 +38,7 @@ public abstract class ModelForCausalLM<T> : PretrainedModel<T>, ModelForCausalLM
 			dtype:VertexAttributeFormat.Float32)); // cast to float32
 		RepetitionPenaltyLogitsProcessor(inputs, ref scores, repetition_penalty, input);
 		var gumbel = BatchRelease(nn.Gumbel(MarkRelease(scores), temperature));
-		return BatchRelease(nn.ArgMax(MarkRelease(gumbel), window:(new Vector2(0, config.vocab_size), null)));
+		return BatchRelease(nn.ArgMax(MarkRelease(gumbel), window:(new Vector2(0, config.vocab_size), default)));
 	}
 
 	protected Texture CacheUpdate(string name, (TexView, int) position, TexView state) {

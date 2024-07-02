@@ -30,7 +30,9 @@ public class VitsDecoder : PretrainedModel<VitsConfig> {
 			hidden_states = BatchRelease(LeakyRelu(MarkRelease(hidden_states), config.leaky_relu_slope));
 			hidden_states = BatchRelease(ConvTranspose1d($"{path}.upsampler.{i}", MarkRelease(hidden_states),
 				config.upsample_kernel_sizes[i], stride:config.upsample_rates[i]));
-			padding_mask.Item1 *= config.upsample_rates[i];
+			padding_mask.Item1.x *= config.upsample_rates[i];
+			padding_mask.Item1.y *= config.upsample_rates[i];
+			padding_mask.Item1.z *= config.upsample_rates[i];
 			hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), window:padding_mask));
 
 			var res_state = default(Texture);

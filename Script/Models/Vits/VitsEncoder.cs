@@ -15,7 +15,7 @@ public class VitsEncoder : PretrainedModel<VitsConfig> {
 		if(window_size > 0) {
 			var relative_logits = BatchRelease(nn.Linear(MarkRelease(query), state_dict[$"{path}.emb_rel_k.weight"], heads:config.num_attention_heads, weightHeads:1));
 			var rel_pos_bias = BatchRelease(nn.Narrow(MarkRelease(relative_logits),
-				window:(new Vector4(window_size,window_size+size0,0,-1), input_ids), groups:config.num_attention_heads));
+				window:(new Vector4(window_size, window_size+size0, -1, 1), input_ids), groups:config.num_attention_heads));
 			Debug.Assert(ctx.Size1(rel_pos_bias) == ctx.Size1(attn_weights));
 			// NOTE: rel_pos_bias will be truncated at padding_mask later in attn_probs
 			attn_weights = BatchRelease(nn.Fusion(MarkRelease(attn_weights), add:MarkRelease(rel_pos_bias)));
@@ -29,7 +29,7 @@ public class VitsEncoder : PretrainedModel<VitsConfig> {
 		hidden_states = BatchRelease(nn.Linear(attn_probs, MarkRelease(values), weightT:true, heads:config.num_attention_heads));
 		if(window_size > 0) {
 			var relative_weights = BatchRelease(nn.Narrow(MarkRelease(attn_probs),
-				window:(new Vector4(-window_size,window_size+1,0,1), input_ids), groups:config.num_attention_heads));
+				window:(new Vector4(-window_size, window_size+1, 1, 1), input_ids), groups:config.num_attention_heads));
 			Debug.Assert(ctx.Size1(relative_weights) == (window_size/2+1)*config.num_attention_heads);
 			var rel_pos_bias = BatchRelease(nn.Linear(MarkRelease(relative_weights), state_dict[$"{path}.emb_rel_v.weight"], weightT:true, heads:config.num_attention_heads, weightHeads:1));
 			hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(rel_pos_bias)));

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 namespace ShaderGPT {
+using Window = System.ValueTuple<Vector4,TexView>;
 public class TensorNN {
 	public TensorContext ctx;
 	public Dictionary<string, Shader> kernels;
@@ -112,7 +113,7 @@ public class TensorNN {
 		return output;
 	}
 	Texture _Reduce(TexView input, Keyword func, int groups=1, float scale=1f,
-			(Vector4,Texture)? window=null, Matrix4x4? linear=null, int indexMod=0) {
+			Window? window=null, Matrix4x4? linear=null, int indexMod=0) {
 		Debug.Assert(ctx.Size1(input) % groups == 0 || indexMod > 0);
 		var groupSize = ctx.Size1(input) / groups;
 		var lod = 0;
@@ -136,11 +137,8 @@ public class TensorNN {
 			mat.SetInt("_IndexMod", indexMod);
 		else if(indexMod < 0)
 			EnableOption(mat, Keyword.INPUT_REDUCED);
-		if(window != null) {
-			mat.SetVector("_Window", window.Value.Item1);
-			if(window.Value.Item2)
-				SetTensor(mat, "_Window", window.Value.Item2);
-		}
+		if(window != null)
+			SetWindow(mat, "_Window", window.Value);
 		if(linear != default) {
 			mat.SetVector("_Linear0", linear.Value.GetColumn(0));
 			mat.SetVector("_Linear1", linear.Value.GetColumn(1));
@@ -153,7 +151,7 @@ public class TensorNN {
 	}
 	Texture _Normalize(TexView input, Keyword func, Keyword reduceFunc, int groups=1,
 			TexView mul=default, TexView add=default, float eps=0f, float scale=1f,
-			(Vector4,Texture)? window=null, Matrix4x4? linear=null) {
+			Window? window=null, Matrix4x4? linear=null) {
 		var reduce = _Reduce(input, reduceFunc, groups:groups, scale:scale, window:window, linear:linear);
 		var output = ctx.GPUTensor(ctx.Size0(input), ctx.Size1(input), dtype:ctx.DType(input));
 		var mat = ctx.Operator(kernels["Function"]);
@@ -161,11 +159,8 @@ public class TensorNN {
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
 		SetTensor(mat, "_Reduce", reduce);
-		if(window != null) {
-			mat.SetVector("_Window", window.Value.Item1);
-			if(window.Value.Item2)
-				SetTensor(mat, "_Window", window.Value.Item2);
-		}
+		if(window != null)
+			SetWindow(mat, "_Window", window.Value);
 		if(mul)
 			SetTensor(mat, "_Mul", mul);
 		if(add)
@@ -177,18 +172,15 @@ public class TensorNN {
 		return output;
 	}
 	public Texture Fusion(TexView input, float scale=1f, float bias=0f, TexView mul=default, TexView add=default, Keyword func=0, float eps=0,
-			(Vector4,Texture)? window=null, Vector4 @default=default, VertexAttributeFormat? dtype=null) {
+			Window? window=null, Vector4 @default=default, VertexAttributeFormat? dtype=null) {
 		Debug.Assert(!mul || (ctx.Size0(input) % ctx.Size0(mul) == 0 && ctx.Size1(input) % ctx.Size1(mul) == 0));
 		Debug.Assert(!add || (ctx.Size0(input) % ctx.Size0(add) == 0 && ctx.Size1(input) % ctx.Size1(add) == 0));
 		var output = ctx.GPUTensor(ctx.Size0(input), ctx.Size1(input), dtype:dtype??ctx.DType(input));
 		var mat = ctx.Operator(kernels["Function"]);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
-		if(window != null) {
-			mat.SetVector("_Window", window.Value.Item1);
-			if(window.Value.Item2)
-				SetTensor(mat, "_Window", window.Value.Item2);
-		}
+		if(window != null)
+			SetWindow(mat, "_Window", window.Value);
 		mat.SetVector("_Default", @default);
 		if(mul)
 			SetTensor(mat, "_Mul", mul);
@@ -236,7 +228,7 @@ public class TensorNN {
 		ctx.Blit(output, mat);
 		return output;
 	}
-	public Texture Narrow(TexView input, (Vector4,Texture) window, int groups=1) {
+	public Texture Narrow(TexView input, Window window, int groups=1) {
 		Debug.Assert(ctx.Size1(input) % groups == 0);
 		var size1 = ((int)(window.Item1.y-window.Item1.x)+3)/4 * groups;
 		var output = ctx.GPUTensor(ctx.Size0(input), size1, dtype:ctx.DType(input));
@@ -245,9 +237,7 @@ public class TensorNN {
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
 		mat.SetVector("_ReduceDim", new Vector2(1, groups));
-		mat.SetVector("_Window", window.Item1);
-		if(window.Item2)
-			SetTensor(mat, "_Window", window.Item2);
+		SetWindow(mat, "_Window", window);
 		ctx.Blit(output, mat);
 		return output;
 	}
@@ -326,11 +316,11 @@ public class TensorNN {
 	public Texture Transpose(TexView input, int size0) {
 		return IndexSelect(input, (null, size0), inputT:true);
 	}
-	public Texture Sum(TexView input, (Vector4,Texture)? window=null) {
+	public Texture Sum(TexView input, Window? window=null) {
 		return _Reduce(input, Keyword.REDUCE_SUMPOW, window:window,
 			linear:new Matrix4x4(default, new Vector4(1,0,0,0), default, default));
 	}
-	public Texture ArgMax(TexView input, (Vector4,Texture)? window=null) {
+	public Texture ArgMax(TexView input, Window? window=null) {
 		return _Reduce(input, Keyword.REDUCE_MINMAX, window:window,
 			linear:new Matrix4x4(default, default, default, new Vector4(1,0,0,0)));
 	}
@@ -340,7 +330,7 @@ public class TensorNN {
 		return _Normalize(input, Keyword.FUNC_GROUPNORM, reduceFunc:Keyword.REDUCE_SUMPOW, groups:groups,
 			mul:weight, add:bias, eps:eps, linear:Matrix4x4.Scale(new Vector4(1, rms?0:1, 1, 1)));
 	}
-	public Texture Softmax(TexView input, int groups=1, float scale=1f, (Vector4,Texture)? window=null) {
+	public Texture Softmax(TexView input, int groups=1, float scale=1f, Window? window=null) {
 		return _Normalize(input, Keyword.FUNC_SOFTMAX, Keyword.REDUCE_SUMEXP, groups:groups, scale:scale, window:window);
 	}
 	public Texture Gumbel(TexView input, float scale) {
@@ -357,6 +347,11 @@ public class TensorNN {
 		SetTensor(mat, name, tex);
 		EnableOption(mat, UnityEngine.Experimental.Rendering.GraphicsFormatUtility.IsUNormFormat(tex.graphicsFormat)
 			? Keyword.WEIGHT_QUANTIZED_E8 : Keyword.WEIGHT_QUANTIZED_S24_Z8);
+	}
+	void SetWindow(Material mat, string name, Window window) {
+		mat.SetVector(name, window.Item1);
+		if(window.Item2)
+			SetTensor(mat, name, window.Item2);
 	}
 	void EnableOption(Material mat, Keyword keyword) {
 		mat.EnableKeyword(keyword.ToString());

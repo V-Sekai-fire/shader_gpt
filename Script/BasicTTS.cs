@@ -144,8 +144,8 @@ public class BasicTTS : MonoBehaviour {
 		nn.Copy(ctx.Slice(waveform,  1, 1), ctx.Slice(lengths, 1, 1));
 
 		var o = model.VitsModel(inputs, indices,
-			input_padding_mask:(new Vector4(-ctx.Size0(inputs),0,1,0), lengths),
-			output_padding_mask:(new Vector4(-ctx.Size0(indices),0,0,1), lengths));
+			input_padding_mask: (new Vector4(-ctx.Size0(inputs),  0, 1, 0), lengths),
+			output_padding_mask:(new Vector4(-ctx.Size0(indices), 0, 1, 1), lengths));
 		ctx.Release(inputs);
 		ctx.Release(indices);
 		ctx.Release(lengths);

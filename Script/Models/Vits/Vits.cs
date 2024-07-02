@@ -39,7 +39,7 @@ public class Vits : PretrainedModel<VitsConfig> {
 	}
 	public (Texture waveform, Texture spectrogram, Texture hidden_states) VitsModel(Texture input_ids, Texture indices,
 			(Vector4,Texture)? input_padding_mask=null, (Vector4,Texture)? output_padding_mask=null) {
-		var padding_mask = input_padding_mask ?? (new Vector4(0,ctx.Size0(input_ids),0,0), null);
+		var padding_mask = input_padding_mask ?? (new Vector2(0, ctx.Size0(input_ids)), default);
 		var (hidden_states, stats) = text_encoder.VitsTextEncoder(input_ids, padding_mask);
 
 		var attn_stats = BatchRelease(nn.IndexSelect(MarkRelease(stats), (indices, 0)));
@@ -52,7 +52,7 @@ public class Vits : PretrainedModel<VitsConfig> {
 			mul:MarkRelease(prior_variances), scale:config.noise_scale, add:(MarkRelease(attn_stats), prior_means).Item2));
 		var latents = (RenderTexture)BatchRelease(nn.Transpose(MarkRelease(prior_latents), ctx.Size1(prior_latents)*4));
 
-		padding_mask = output_padding_mask ?? (new Vector4(0,ctx.Size0(indices),0,0), null);
+		padding_mask = output_padding_mask ?? (new Vector2(0, ctx.Size0(indices)), default);
 		flow.VitsResidualCouplingBlock(ref latents, padding_mask, reverse:true);
 		var waveform = decoder.VitsHifiGan(latents, padding_mask);
 		return (waveform, latents, hidden_states);
