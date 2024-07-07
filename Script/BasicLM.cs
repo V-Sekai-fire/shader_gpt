@@ -48,6 +48,8 @@ public class BasicLM : MonoBehaviour {
 		var testcase = testcaseJson ? JsonUtility.FromJson<Testcase>(testcaseJson.text) : null;
 
 		if(task == Task.Run) {
+			if(model is ModelForSeq2SeqLM)
+				RunEncoder(testcase);
 			nextTime = Time.time;
 			positionId = 0;
 			if(tokens == null)
@@ -105,9 +107,18 @@ public class BasicLM : MonoBehaviour {
 		{typeof(Models.Llama), (1e-4f, 4e-5f)},
 		{typeof(Models.Phi), (3e-5f, 5e-5f)},
 		{typeof(Models.OpenELM), (4e-5f, 1e-4f)},
+		{typeof(Models.T5), (3e-5f, 2e-4f)},
 	};
+	int encoder_input_length;
+	void RunEncoder(Testcase testcase) {
+		encoder_input_length = testcase.encoder_input_ids.Length;
+		var encoder_input = InputTensor(testcase.encoder_input_ids, chan2:encoder_input_length);
+		var encoder_output = ((ModelForSeq2SeqLM)model).ForSeq2SeqLM(encoder_input, null);
+		ctx.Release(encoder_output.encoder_hidden_states);
+		ctx.Release(encoder_input);
+	}
 	int Run(int positionId) {
-		var input = InputTensor(tokens, positionId);
+		var input = InputTensor(tokens, positionId, chan2:encoder_input_length);
 		var output = model.ForCausalLM(input);
 		ctx.Release(output.hidden_states);
 		var next_tokens = model.Generate(input, ref output.logits);
@@ -118,7 +129,15 @@ public class BasicLM : MonoBehaviour {
 	}
 	void Test(Testcase testcase) {
 		var (hidden_states_err, logits_err) = testErrMap[model.GetType()];
-		var input = InputTensor(testcase.input_ids);
+		if(model is ModelForSeq2SeqLM) {
+			encoder_input_length = testcase.encoder_input_ids.Length;
+			var encoder_input = InputTensor(testcase.encoder_input_ids, chan2:encoder_input_length);
+			var encoder_output = ((ModelForSeq2SeqLM)model).ForSeq2SeqLM(encoder_input, null);
+			ctx.Release(encoder_input);
+			AssertData((RenderTexture)encoder_output.encoder_hidden_states, 0, testcase.encoder_hidden_states, 1e-3f);
+			ctx.Release(encoder_output.encoder_hidden_states);
+		}
+		var input = InputTensor(testcase.input_ids, chan2:encoder_input_length);
 		var output = model.ForCausalLM(input);
 		ctx.Release(input);
 		AssertData((RenderTexture)output.hidden_states, -1, testcase.hidden_states, hidden_states_err);
@@ -128,6 +147,14 @@ public class BasicLM : MonoBehaviour {
 	}
 	void Bake() {
 		var input = ctx.GPUTensor(1, 1);
+		if(model is ModelForSeq2SeqLM) {
+			var encoder_input = ctx.CPUTensor(generationConfig.max_length, 1);
+			nn.Copy(input, ctx.Slice(encoder_input,  1, 1));
+			var encoder_output = ((ModelForSeq2SeqLM)model).ForSeq2SeqLM(encoder_input, null);
+			ctx.Release(encoder_output.encoder_hidden_states);
+			ctx.Release(encoder_input);
+			((TensorTracer)ctx).Split();
+		}
 		var output = model.ForCausalLM(input);
 		ctx.Release(output.hidden_states);
 		var next_tokens = model.Generate(input, ref output.logits);
@@ -136,14 +163,15 @@ public class BasicLM : MonoBehaviour {
 		ctx.Release(input);
 	}
 
-	Texture InputTensor(IList<int> input_ids, int position_id=0) {
+	Texture InputTensor(IList<int> input_ids, int position_id=0, int? size0=null, int chan2=0) {
 		var n = input_ids.Count-position_id;
-		var inputData = new float[n*4];
+		var inputData = new float[(size0??n)*4];
 		for(int i=0; i<n; i++) {
 			inputData[i*4+0] = input_ids[i+position_id];
 			inputData[i*4+1] = i+position_id;
+			inputData[i*4+2] = chan2;
 		}
-		var input = ctx.CPUTensor(n, 1);
+		var input = ctx.CPUTensor((size0??n), 1);
 		ctx.SetData(input, inputData);
 		return input;
 	}
@@ -178,6 +206,8 @@ public class BasicLM : MonoBehaviour {
 	}
 	[System.Serializable]
 	class Testcase {
+		public int[] encoder_input_ids;
+		public float[] encoder_hidden_states;
 		public int[] input_ids;
 		public float[] hidden_states;
 		public float[] logits;

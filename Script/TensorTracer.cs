@@ -12,6 +12,7 @@ public class TensorTracer: TensorContext {
 	Dictionary<int, RenderTextureDescriptor> rtDesc = new Dictionary<int, RenderTextureDescriptor>();
 	Dictionary<int, (int,int,TextureFormat)> texDesc = new Dictionary<int, (int,int,TextureFormat)>();
 	List<Material> matList = new List<Material>();
+	List<int> matSplits = new List<int>();
 	public override RenderTexture GPUTensor(int size0, int size1, VertexAttributeFormat? dtype=null, int lod=0, bool autoGenMips=true) {
 		var tex = RenderTexture.GetTemporary(GPUTensorDescriptor(size0, size1, dtype:dtype, lod:lod, autoGenMips:autoGenMips));
 		rtDesc[tex.GetInstanceID()] = tex.descriptor;
@@ -33,6 +34,9 @@ public class TensorTracer: TensorContext {
 		Graphics.Blit(null, rt, mat, 0);
 		matList.Add(mat);
 	}
+	public void Split() {
+		matSplits.Add(matList.Count);
+	}
 	public Object Export(string path) {
 		var names = new HashSet<string>();
 		foreach(var shader in matList.Select(mat => mat.shader).Distinct())
@@ -41,9 +45,7 @@ public class TensorTracer: TensorContext {
 					names.Add(shader.GetPropertyName(i));
 #if UNITY_EDITOR
 		var remap = new Dictionary<int,Texture>();
-		var go = new GameObject("foo");
-		var child = new GameObject("bar", typeof(MeshRenderer));
-		child.transform.parent = go.transform; // putting renderer at root may cause editor lag
+		var go = new GameObject("trace");
 		var prefab = PrefabUtility.SaveAsPrefabAssetAndConnect(go, path, InteractionMode.AutomatedAction);
 		// remove old textures and materials
 		foreach(var o in AssetDatabase.LoadAllAssetsAtPath(path))
@@ -82,7 +84,16 @@ public class TensorTracer: TensorContext {
 				AssetDatabase.AddObjectToAsset(mat, path);
 			}
 		}
-		child.GetComponent<MeshRenderer>().sharedMaterials = matList.ToArray();
+		for(int i=0; i<=matSplits.Count; i++) {
+			var start = i>0? matSplits[i-1] : 0;
+			var stop = i<matSplits.Count ? matSplits[i] : matList.Count;
+			var arr = new Material[stop-start];
+			for(int j=start; j<stop; j++)
+				arr[j-start] = matList[j];
+			var child = new GameObject($"group{i}", typeof(MeshRenderer));
+			child.transform.parent = go.transform;
+			child.GetComponent<MeshRenderer>().sharedMaterials = arr;
+		}
 		PrefabUtility.ApplyPrefabInstance(go, InteractionMode.AutomatedAction);
 		Object.Destroy(go);
 		AssetDatabase.SaveAssets();

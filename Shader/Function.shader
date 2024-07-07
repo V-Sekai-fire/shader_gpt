@@ -106,11 +106,16 @@ float4 main(uint2 pos) {
 	#elif defined(FUNC_NARROW) // torch.narrow
 		uint J = _InputDim.y/_ReduceDim.y;
 		uint k = pos.y/(_OutputDim.y/_ReduceDim.y);
+		uint i = pos.x;
 		index += range.x;
 		mask = index < range.y;
+		if(_ReduceDim.x == 0) {
+			i = min(i, _InputDim.x-1);
+			index = uint4(clamp(int4(index), 0, J*4-1));
+		}
 		[unroll] for(uint c=0; c<4; c++) {
 			uint j = index[c];
-			O[c] = j/4 < J ? LOAD_TENSOR(_Input, _InputTex_ST.xy*uint2(pos.x, k*J+j/4))[j%4] : 0;
+			O[c] = j/4 < J ? LOAD_TENSOR(_Input, _InputTex_ST.xy*uint2(i, k*J+j/4))[j%4] : 0;
 		}
 	#elif defined(FUNC_RESHAPE) // torch.reshape
 		uint idx = pos.x * _OutputDim.y + pos.y;

@@ -14,6 +14,8 @@ public class GPTNeoConfig : PretrainedConfig<GPTNeoConfig> {
 
 	public int num_attention_heads => num_heads;
 	public int num_hidden_layers => num_layers;
+	public string hidden_act => activation_function;
+	public float layer_norm_eps => layer_norm_epsilon;
 }
 public class GPTNeo : ModelForCausalLM<GPTNeoConfig> {
 	public GPTNeo(TensorNN nn, GPTNeoConfig config): base(nn, config) {}
@@ -38,14 +40,14 @@ public class GPTNeo : ModelForCausalLM<GPTNeoConfig> {
 	}
 	void GPTNeoMLP(string path, ref Texture hidden_states) {
 		hidden_states = BatchRelease(Linear($"{path}.c_fc", MarkRelease(hidden_states)));
-		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), func:TensorNN.ActFn(config.activation_function)));
+		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), func:TensorNN.ActFn(config.hidden_act)));
 		hidden_states = BatchRelease(Linear($"{path}.c_proj", MarkRelease(hidden_states)));
 	}
 	void GPTNeoBlock(string path, ref Texture hidden_states, Texture input_ids, int layer_id) {
-		var attn_states = LayerNorm($"{path}.ln_1", hidden_states, config.layer_norm_epsilon);
+		var attn_states = LayerNorm($"{path}.ln_1", hidden_states, config.layer_norm_eps);
 		GPTNeoSelfAttention($"{path}.attn.attention", ref attn_states, input_ids, layer_id:layer_id);
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(attn_states)));
-		var mlp_states = LayerNorm($"{path}.ln_2", hidden_states, config.layer_norm_epsilon);
+		var mlp_states = LayerNorm($"{path}.ln_2", hidden_states, config.layer_norm_eps);
 		GPTNeoMLP($"{path}.mlp", ref mlp_states);
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), add:MarkRelease(mlp_states)));
 	}
@@ -55,7 +57,7 @@ public class GPTNeo : ModelForCausalLM<GPTNeoConfig> {
 		var hidden_states   = BatchRelease(nn.Fusion(MarkRelease(inputs_embeds), add:MarkRelease(position_embeds)));
 		for(int i=0; i<config.num_hidden_layers; i++)
 			GPTNeoBlock($"{path}.h.{i}", ref hidden_states, input_ids, layer_id:i);
-		hidden_states = BatchRelease(LayerNorm($"{path}.ln_f", MarkRelease(hidden_states), config.layer_norm_epsilon));
+		hidden_states = BatchRelease(LayerNorm($"{path}.ln_f", MarkRelease(hidden_states), config.layer_norm_eps));
 		return hidden_states;
 	}
 	(Texture, Texture) GPTNeoForCausalLM(Texture input_ids) {

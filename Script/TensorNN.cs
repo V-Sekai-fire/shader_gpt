@@ -228,15 +228,15 @@ public class TensorNN {
 		ctx.Blit(output, mat);
 		return output;
 	}
-	public Texture Narrow(TexView input, Window window, int groups=1) {
+	public Texture Narrow(TexView input, Window window, int groups=1, int? size0=null, bool clamp=false) {
 		Debug.Assert(ctx.Size1(input) % groups == 0);
 		var size1 = ((int)(window.Item1.y-window.Item1.x)+3)/4 * groups;
-		var output = ctx.GPUTensor(ctx.Size0(input), size1, dtype:ctx.DType(input));
+		var output = ctx.GPUTensor(size0??ctx.Size0(input), size1, dtype:ctx.DType(input));
 		var mat = ctx.Operator(kernels["Function"]);
 		EnableOption(mat, Keyword.FUNC_NARROW);
 		SetTensor(mat, "_Output", output);
 		SetTensor(mat, "_Input",  input);
-		mat.SetVector("_ReduceDim", new Vector2(1, groups));
+		mat.SetVector("_ReduceDim", new Vector2(clamp?0:1, groups));
 		SetWindow(mat, "_Window", window);
 		ctx.Blit(output, mat);
 		return output;

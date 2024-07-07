@@ -66,6 +66,17 @@ public interface ModelForCausalLM : PretrainedModel {
 	/*public*/ Texture Generate(Texture input, ref Texture scores);
 	/*public*/ void CacheClear();
 }
+public abstract class ModelForSeq2SeqLM<T> : ModelForCausalLM<T>, ModelForSeq2SeqLM where T : PretrainedConfig<T> {
+	public ModelForSeq2SeqLM(TensorNN nn, T config): base(nn, config) {}
+	public abstract (Texture logits, Texture decoder_hidden_states, Texture encoder_hidden_states) ForSeq2SeqLM(Texture input_ids, Texture decoder_input_ids, Texture encoder_hidden_states=null);
+	public override (Texture logits, Texture hidden_states) ForCausalLM(Texture input_ids) {
+		var o = ForSeq2SeqLM(null, input_ids);
+		return (o.logits, o.decoder_hidden_states);
+	}
+}
+public interface ModelForSeq2SeqLM : ModelForCausalLM {
+	/*public*/ (Texture logits, Texture decoder_hidden_states, Texture encoder_hidden_states) ForSeq2SeqLM(Texture input_ids, Texture decoder_input_ids, Texture encoder_hidden_states=null);
+}
 public static class AutoModelForCausalLM {
 	public static ModelForCausalLM FromPretrained(TensorNN nn, TextAsset configJson) {
 		var config = JsonUtility.FromJson<PretrainedConfig>(configJson.text);
@@ -87,6 +98,8 @@ public static class AutoModelForCausalLM {
 			return new Models.OpenELM(nn, Models.OpenELMConfig.FromPretrained(configJson));
 		case "phi":
 			return new Models.Phi(nn, Models.PhiConfig.FromPretrained(configJson));
+		case "t5":
+			return new Models.T5(nn, Models.T5Config.FromPretrained(configJson));
 		default:
 			throw new System.NotSupportedException($"unsupported architecture \"{config.model_type}\"");
 		}
