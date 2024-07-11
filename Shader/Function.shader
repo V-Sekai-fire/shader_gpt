@@ -121,13 +121,14 @@ float4 main(uint2 pos) {
 		uint idx = pos.x * _OutputDim.y + pos.y;
 		O = LOAD_TENSOR(_Input, _InputTex_ST.xy*uint2(idx/_InputDim.y, idx%_InputDim.y));
 	#elif defined(FUNC_UNFOLD) // torch.nn.functional.unfold
+		// output[i,(p*dilation+q)*kernel_size+r] == input[i,(p*dilation_stride+r)*dilation+q*stride+offset]
 		uint kernel_size = _FoldSize.x, dilation = _FoldSize.y;
 		uint stride = _FoldSize.z,      dilation_stride = _FoldSize.w;
 		[unroll] for(uint c=0; c<4; c++) {
 			uint j = pos.y*4+c;
 			uint r = j % kernel_size;
-			uint q = j / kernel_size % dilation;
-			uint p = j / kernel_size / dilation;
+			uint q = dilation ? j / kernel_size % dilation : j / kernel_size; // support zero dilation
+			uint p = dilation ? j / kernel_size / dilation : 0;
 			uint k = (p*dilation_stride + r)*dilation + q*stride + uint(_FoldOff);
 			O[c] = k/4 < _InputDim.y ? LOAD_TENSOR(_Input, _InputTex_ST.xy*uint2(pos.x, k/4))[k%4] : 0;
 		}

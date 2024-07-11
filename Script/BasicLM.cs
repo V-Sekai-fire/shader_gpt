@@ -134,7 +134,7 @@ public class BasicLM : MonoBehaviour {
 			var encoder_input = InputTensor(testcase.encoder_input_ids, chan2:encoder_input_length);
 			var encoder_output = ((ModelForSeq2SeqLM)model).ForSeq2SeqLM(encoder_input, null);
 			ctx.Release(encoder_input);
-			AssertData((RenderTexture)encoder_output.encoder_hidden_states, 0, testcase.encoder_hidden_states, 1e-3f);
+			AssertData((RenderTexture)encoder_output.encoder_hidden_states, 0, testcase.encoder_hidden_states, hidden_states_err);
 			ctx.Release(encoder_output.encoder_hidden_states);
 		}
 		var input = InputTensor(testcase.input_ids, chan2:encoder_input_length);
@@ -179,11 +179,11 @@ public class BasicLM : MonoBehaviour {
 	void AssertData(RenderTexture rt, int row, float[] value, float eps) {
 		var col = ctx.Size1(rt) * 4;
 		var offset = (row>=0 ? row : ctx.Size0(rt)+row) * col;
-		var count = Mathf.Min(col, value.Length);
 		var data = ctx.GetData(rt);
 		var errorL1 = 0f;
 		var errorL2 = 0f;
 		var errorLi = 0f;
+		var count = value.Length;
 		for(int i=0; i<count; i++) {
 			var error = Mathf.Abs(data[offset+i] - value[i]);
 			errorL1 += error;

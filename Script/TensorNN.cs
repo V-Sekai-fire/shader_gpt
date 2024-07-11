@@ -291,22 +291,24 @@ public class TensorNN {
 		ctx.Blit(output, mat);
 		return output;
 	}
-	public Texture Conv1d(TexView input, TexView weight, TexView bias=default, int kernel_size=0, int dilation=1) {
-		const int stride = 1;
-		if(kernel_size == 1)
+	public Texture Conv1d(TexView input, TexView weight, TexView bias=default, int kernel_size=1, int stride=1, int dilation=1) {
+		if(kernel_size == 1) {
+			Debug.Assert(stride == 1); // TODO: support stride using Unfold
 			return Conv1d_unfolded(input, weight, bias, kernel_size:kernel_size, stride:stride);
+		}
 		var idim = (kernel_size+3*stride+3)/4;
-		var input_uf = Unfold(input, size1:(ctx.Size1(input)+dilation-1)/dilation*dilation*idim,
-			kernel_size:idim*4, dilation:dilation, dilation_stride:4, padding:(kernel_size-stride)/2*dilation);
+		var size1 = (ctx.Size1(input)+stride-1)/stride;
+		var input_uf = Unfold(input, size1:(size1+dilation-1)/dilation*dilation*idim,
+			kernel_size:idim*4, dilation:dilation, dilation_stride:4*stride, stride:stride, padding:((kernel_size-1)*dilation+1-stride)/2);
 		var output_uf = Conv1d_unfolded(input_uf, weight, bias, kernel_size:kernel_size, stride:stride);
 		ctx.Release(input_uf);
 		if(dilation == 1)
 			return output_uf;
-		var output = Unfold(output_uf, size1:ctx.Size1(input), kernel_size:dilation, dilation:4, dilation_stride:dilation); // fold
+		var output = Unfold(output_uf, size1:size1, kernel_size:dilation, dilation:4, dilation_stride:dilation); // fold
 		ctx.Release(output_uf);
 		return output;
 	}
-	public Texture ConvTranspose1d(TexView input, TexView weight, TexView bias=default, int kernel_size=0, int stride=1) {
+	public Texture ConvTranspose1d(TexView input, TexView weight, TexView bias=default, int kernel_size=1, int stride=1) {
 		var input_uf = Unfold(input, size1:ctx.Size1(input)*2, kernel_size:4, dilation_stride:2, padding:1);
 		var output_uf = ConvTranspose1d_unfolded(input_uf, weight, bias, kernel_size:kernel_size, stride:stride);
 		ctx.Release(input_uf);
@@ -316,9 +318,14 @@ public class TensorNN {
 	public Texture Transpose(TexView input, int size0) {
 		return IndexSelect(input, (null, size0), inputT:true);
 	}
-	public Texture Sum(TexView input, Window? window=null) {
+	public Texture Sum(TexView input, Window? window=null, int p=1) {
+		Debug.Assert(0<=p && p<=2);
 		return _Reduce(input, Keyword.REDUCE_SUMPOW, window:window,
-			linear:new Matrix4x4(default, new Vector4(1,0,0,0), default, default));
+			linear:new Matrix4x4(Vector4.one*(p==0?1:0), Vector4.one*(p==1?1:0), Vector4.one*(p==2?1:0), default));
+	}
+	public Texture ArgMin(TexView input, Window? window=null) {
+		return _Reduce(input, Keyword.REDUCE_MINMAX, window:window,
+			linear:new Matrix4x4(default, default, new Vector4(1,0,0,0), default));
 	}
 	public Texture ArgMax(TexView input, Window? window=null) {
 		return _Reduce(input, Keyword.REDUCE_MINMAX, window:window,
@@ -335,6 +342,9 @@ public class TensorNN {
 	}
 	public Texture Gumbel(TexView input, float scale) {
 		return Fusion(input, func:Keyword.FUNC_GUMBEL, scale:scale, add:input);
+	}
+	public Texture UpsampleNearest(TexView input, int scale_factor) {
+		return Unfold(input, size1:ctx.Size1(input)*scale_factor, scale_factor, dilation:0, dilation_stride:0);
 	}
 
 	void SetTensor(Material mat, string name, TexView view) {
@@ -396,6 +406,7 @@ public class TensorNN {
 		FUNC_UNFOLD,
 
 		CONV_K1_S1, CONV_K3_S1, CONV_K5_S1, CONV_K7_S1, CONV_K11_S1,
+		CONV_K4_S2,
 		CONV_TRANSPOSE_K4_S2, CONV_TRANSPOSE_K16_S8,
 	}
 }

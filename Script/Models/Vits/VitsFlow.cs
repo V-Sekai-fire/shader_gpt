@@ -43,9 +43,10 @@ public class VitsFlow : PretrainedModel<VitsConfig> {
 		ctx.Release(diff);
 	}
 	public void VitsResidualCouplingBlock(ref RenderTexture inputs, (Vector4,Texture) padding_mask, bool reverse, string path="flow") {
-		for(int i=config.prior_encoder_num_flows-1; i>=0; i--) {
-			inputs = (RenderTexture)BatchRelease(nn.Flip(MarkRelease(inputs)));
-			VitsResidualCouplingLayer($"{path}.flows.{i}", ref inputs, padding_mask, reverse:reverse);
+		for(int i=0; i<config.prior_encoder_num_flows; i++) {
+			inputs = !reverse ? inputs : (RenderTexture)BatchRelease(nn.Flip(MarkRelease(inputs)));
+			VitsResidualCouplingLayer($"{path}.flows.{(reverse?config.prior_encoder_num_flows-1-i:i)}", ref inputs, padding_mask, reverse);
+			inputs =  reverse ? inputs : (RenderTexture)BatchRelease(nn.Flip(MarkRelease(inputs)));
 		}
 	}
 

@@ -57,13 +57,13 @@ public abstract class Module {
 		state_dict.TryGetValue($"{path}.bias", out var bias);
 		return nn.Linear(input, weightT ?? state_dict[$"{path}.weight"], bias, weightT:weightT);
 	}
-	protected Texture Conv1d(string path, TexView input, int kernel_size, int dilation=1) {
+	protected Texture Conv1d(string path, TexView input, int kernel_size, int stride=1, int dilation=1) {
 		state_dict.TryGetValue($"{path}.bias", out var bias);
-		return nn.Conv1d(input, state_dict[$"{path}.weight"], bias, kernel_size:kernel_size, dilation:dilation);
+		return nn.Conv1d(input, state_dict[$"{path}.weight"], bias, kernel_size, stride:stride, dilation:dilation);
 	}
 	protected Texture ConvTranspose1d(string path, TexView input, int kernel_size, int stride=1) {
 		state_dict.TryGetValue($"{path}.bias", out var bias);
-		return nn.ConvTranspose1d(input, state_dict[$"{path}.weight"], bias, kernel_size:kernel_size, stride:stride);
+		return nn.ConvTranspose1d(input, state_dict[$"{path}.weight"], bias, kernel_size, stride:stride);
 	}
 	protected Texture LayerNorm(string path, TexView input, float eps, int groups=1, bool rms=false) {
 		state_dict.TryGetValue($"{path}.bias", out var bias);

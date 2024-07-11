@@ -26,6 +26,8 @@ static const uint kernel_size = 5, stride = 1;
 static const uint kernel_size = 7, stride = 1;
 #elif defined(CONV_K11_S1)
 static const uint kernel_size = 11, stride = 1;
+#elif defined(CONV_K4_S2)
+static const uint kernel_size = 4, stride = 2;
 #elif defined(CONV_TRANSPOSE_K4_S2)
 #define TRANSPOSE
 static const uint kernel_size = 4, stride = 2;
@@ -125,6 +127,7 @@ HLSLPROGRAM
 #pragma vertex vertQuad
 #pragma fragment frag
 #pragma shader_feature CONV_K1_S1 CONV_K3_S1 CONV_K5_S1 CONV_K7_S1 CONV_K11_S1\
+	CONV_K4_S2\
 	CONV_TRANSPOSE_K4_S2 CONV_TRANSPOSE_K16_S8
 ENDHLSL
 	}
