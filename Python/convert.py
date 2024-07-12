@@ -210,6 +210,28 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 			else:
 				continue
 			del state_dict[name]
+	elif model_type in ["t5"]:
+		shared_weight = model.state_dict().get("shared.weight")
+		for name, data in list(state_dict.items()):
+			if name in ["shared.weight", "encoder.embed_tokens.weight", "decoder.embed_tokens.weight", "lm_head.weight"]:
+				if name != "shared.weight" and shared_weight is not None and torch.allclose(data, shared_weight):
+					pass # skip duplicate weights to save space
+				else:
+					state_dict[f"{name}.T"] = unpack(data).T
+			elif m := re.fullmatch(r"(.*[.]SelfAttention)[.]relative_attention_bias[.]weight", name):
+				layer = model.get_submodule(m[1])
+				relative_position_bucket = layer._relative_position_bucket(
+					torch.arange(-layer.relative_attention_max_distance, layer.relative_attention_max_distance,
+						dtype=torch.long, device=layer.q.weight.device),
+					bidirectional=(not layer.is_decoder),
+					num_buckets=layer.relative_attention_num_buckets,
+					max_distance=layer.relative_attention_max_distance,
+				)
+				# bake buckets into weights
+				state_dict[f"{name}.T"] = layer.relative_attention_bias(relative_position_bucket).permute(1, 0)[None,:,:]
+			else:
+				continue
+			del state_dict[name]
 	elif model_type in ["vits"]:
 		for name, data in list(state_dict.items()):
 			if name in ["text_encoder.embed_tokens.weight", "text_encoder.project.weight"]:
@@ -229,8 +251,8 @@ def export_lm(model, folder, force_write=False, quantize=None, max_positions=163
 		assert (re.search(r"\.weight(\.T)?$", name) and len(data.shape) in (2,3))\
 			or (re.search(r"\.(weight|bias)$", name) and len(data.shape) == 1)
 
-		quantizable = bool(re.search(r"(?<!rotary_emb|_embedding)\.weight(\.T)?$", name))
-		quantizable = quantizable and len(data.shape) == 2
+		quantizable = bool(re.search(r"\.weight(\.T)?$", name)) and len(data.shape) == 2
+		quantizable = quantizable and not re.search(r"(rotary_emb|pos_embedding|relative_attention_bias)\.weight", name)
 		quantizable = quantizable and quantize is not None and quantize(name, data.shape)
 
 		filenames = []
@@ -289,38 +311,36 @@ def export_tokenizer(tokenizer, folder):
 		except ValueError:
 			fast_tokenizer = None
 
+	# extract vocab
+	vocab = tokenizer.convert_ids_to_tokens(list(range(len(tokenizer.get_vocab()))))
+	fixed = [x.encode() if x in tokenizer.added_tokens_encoder else\
+		bytes((int(x[1:-1], 16),)) if re.fullmatch(r"<0x[0-9A-F]{2}>", x) else None for x in vocab]
 	if fast_tokenizer is None:
-		merges = []
-		decode_token = lambda token: token.encode()
+		vocab = [x.encode() for x in vocab]
+	elif type(fast_tokenizer.decoder).__name__ == "ByteLevel":
+		from transformers.models.gpt2.tokenization_gpt2 import bytes_to_unicode
+		byte_decoder = {c: b for b, c in bytes_to_unicode().items()}
+		vocab = [fixed[i] or bytes(byte_decoder[c] for c in x) for i,x in enumerate(vocab)]
 	else:
-		model = fast_tokenizer.model
-		pre_tokenizer = fast_tokenizer.pre_tokenizer
+		prefix_len = len(tokenizer.decode([0]))
+		vocab = [fixed[i] or tokenizer.decode([0, i])[prefix_len:].encode() for i in range(len(vocab))]
 
-		if type(model).__name__ == "BPE":
-			data = json.loads(fast_tokenizer.to_str())
-			merges = [x.split(" ", 1) for x in data["model"]["merges"]]
-			if pre_tokenizer is None:
-				prefix_len = len(tokenizer.decode([0]))
-				decode_token = lambda token: bytes((int(token[1:-1], 16),)) \
-					if model.byte_fallback and re.fullmatch(r"<0x[0-9A-F]{2}>", token) \
-					else tokenizer.decode([0, tokenizer.convert_tokens_to_ids(token)])[prefix_len:].encode()
-			elif type(pre_tokenizer).__name__ == "ByteLevel" or type(fast_tokenizer.decoder).__name__ == "ByteLevel":
-				from transformers.models.gpt2.tokenization_gpt2 import bytes_to_unicode
-				byte_decoder = {c: b for b, c in bytes_to_unicode().items()}
-				decode_token = lambda token: bytes(byte_decoder[c] for c in token)
-			else:
-				raise NotImplementedError(f"pre_tokenizer={type(pre_tokenizer)}, decoder={type(fast_tokenizer.decoder)} is not supported")
+	# extract model
+	merges = []
+	if fast_tokenizer is not None:
+		config = json.loads(fast_tokenizer.to_str())
+		if type(fast_tokenizer.model).__name__ == "BPE":
+			merges = [tokenizer.convert_tokens_to_ids(x.split(" ", 1)) for x in config["model"]["merges"]]
+		elif type(fast_tokenizer.model).__name__ == "Unigram":
+			weights = [x[1] for x in config["model"]["vocab"]] # TODO
 		else:
-			raise NotImplementedError(f"model {type(model)} is not supported")
+			raise NotImplementedError(f"model {type(fast_tokenizer.model)} is not supported")
 
-	vocab = [tokenizer.convert_ids_to_tokens(i) for i in range(len(tokenizer.get_vocab()))]
-	merges = [tokenizer.convert_tokens_to_ids(x) for x in merges]
 	added_tokens = [k for k, v in sorted(tokenizer.added_tokens_encoder.items(), key=lambda item: item[1])]
-
-	added_tokens_set = set(added_tokens)
-	vocab = [token if token in added_tokens_set else "".join(chr(b) for b in decode_token(token)) for token in vocab]
+	vocab = ["".join(chr(b) for b in token) for token in vocab]
 	merges = [f"{vocab[i]} {vocab[j]}" for i, j in merges]
 
+	# extract chat_template
 	chat_templates = {}
 	if tokenizer.chat_template is not None:
 		messages = [
@@ -365,27 +385,44 @@ def export_testcase(model, tokenizer, folder, force_write=False):
 		"previously unexplored valley, in the Andes Mountains. Even more surprising to the "
 		"researchers was the fact that the unicorns spoke perfect English."
 	)
-	input_ids = tokenizer(prompt, return_tensors="pt", padding=False, add_special_tokens=False).input_ids.to(model.device)
-	position_ids = torch.ones_like(input_ids, device=input_ids.device).long().cumsum(-1) - 1
-	outputs = model(input_ids=input_ids, position_ids=position_ids, output_hidden_states=True, return_dict=True)
+	o = {}
+
+	# run encoder
+	encoder_outputs = None
+	if hasattr(model, "encoder"):
+		encoder_input_ids = tokenizer(prompt, return_tensors="pt", padding=False, add_special_tokens=False).input_ids.to(model.device)
+		encoder_outputs = model.encoder(input_ids=encoder_input_ids, return_dict=True)
+		o["encoder_input_ids"] = encoder_input_ids[0].tolist()
+		o["encoder_hidden_states"] = encoder_outputs.last_hidden_state[0].reshape(-1).tolist()
+
+	# run tokenizer
+	input_ids = tokenizer(prompt, return_tensors="pt", padding=False, add_special_tokens=False).input_ids.to(model.device).long()
+	if encoder_outputs is not None:
+		decoder_start_token_id = model.generation_config.decoder_start_token_id
+		if input_ids.shape[1] == 0 or (input_ids[:, 0] != decoder_start_token_id).all().item():	
+			input_ids = torch.cat([torch.ones((input_ids.shape[0], 1), dtype=torch.long, device=input_ids.device) * decoder_start_token_id, input_ids], dim=-1)
+
+	# run model
+	outputs = model(**model.prepare_inputs_for_generation(input_ids, return_dict=True,
+		**(dict(encoder_outputs=encoder_outputs))), output_hidden_states=True)
+	o["input_ids"] = input_ids[0].tolist()
+	o["logits"] = outputs.logits[0,-1].tolist()
+	o["hidden_states"] = (outputs.hidden_states if encoder_outputs is None else outputs.decoder_hidden_states)[-1][0,-1].tolist()
 
 	os.makedirs(folder, exist_ok=True)
 	print(folder/"testcase.json")
 	with open(folder/"testcase.json", "w") as f:
-		json.dump(dict(
-			input_ids = input_ids[0].tolist(),
-			hidden_states = outputs.hidden_states[-1][0,-1].tolist(),
-			logits = outputs.logits[0,-1].tolist(),
-		), f)
+		json.dump(o, f)
 
 def main():
-	from transformers import AutoModelForCausalLM, AutoModelForTextToWaveform, AutoTokenizer
+	from transformers import AutoModelForCausalLM, AutoModelForSeq2SeqLM, AutoModelForTextToWaveform, AutoTokenizer
 	import argparse
 	parser = argparse.ArgumentParser()
 	parser.add_argument('model', help='model id or path. for example: roneneldan/TinyStories-1M')
 	parser.add_argument('folder', help='save path. for example: ../Model/')
 	parser.add_argument('--tokenizer', type=str)
 	parser.add_argument('--device', type=str)
+	parser.add_argument('--dtype', type=str)
 	parser.add_argument('--trust', action='store_true')
 	parser.add_argument('--force', action='store_true')
 	parser.add_argument('--quantize', type=float)
@@ -398,9 +435,10 @@ def main():
 	print(f"convert: {args.model} => {folder}")
 	disable_exllama()
 	errs = []
-	for auto_cls in [AutoModelForCausalLM, AutoModelForTextToWaveform]:
+	for auto_cls in [AutoModelForCausalLM, AutoModelForSeq2SeqLM, AutoModelForTextToWaveform]:
 		try:
-			model = auto_cls.from_pretrained(args.model, device_map=args.device or None, trust_remote_code=args.trust)
+			model = auto_cls.from_pretrained(args.model, trust_remote_code=args.trust,
+				device_map=args.device or None, torch_dtype=getattr(torch, args.dtype) if args.dtype else None)
 		except ValueError as e:
 			errs.append(e)
 			continue
@@ -409,8 +447,9 @@ def main():
 			quantize = (lambda name, shape: np.prod(shape) >= args.quantize*1024*1024) if args.quantize else None
 			print(f"model: {type(model)}")
 			export_lm(model, folder, force_write=bool(args.force), quantize=quantize)
-			export_tokenizer(tokenizer, folder)
-			if auto_cls == AutoModelForCausalLM:
+			if tokenizer is not None:
+				export_tokenizer(tokenizer, folder)
+			if auto_cls in [AutoModelForCausalLM, AutoModelForSeq2SeqLM]:
 				export_testcase(model, tokenizer, folder, force_write=bool(args.force))
 			return
 	for e in errs:

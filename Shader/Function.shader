@@ -37,7 +37,7 @@ DEFINE_TEXTURE2D(_WindowTex); uint4 _WindowDim;
 DEFINE_TEXTURE2D(_MulTex);    uint4 _MulDim;
 DEFINE_TEXTURE2D(_AddTex);    uint4 _AddDim;
 DEFINE_TEXTURE2D(_RotaryTex); uint4 _RotaryDim;
-uniform uint4  _Window;
+uniform float4 _Window;
 uniform float4 _Default;
 uniform float _Eps;
 uniform float _Scale;
@@ -53,7 +53,7 @@ float4 main(uint2 pos) {
 	float4 R = LOAD_TENSOR(_Reduce, pos.xy/(_OutputDim.xy/_ReduceDim.xy));
 	float4 O = X;
 	int4 index = pos.y%(_OutputDim.y/_ReduceDim.y)*4 + uint4(0,1,2,3);
-	int2 range = _Window.xy + _Window.z * (uint)(int)LOAD_TENSOR(_Window, uint2(min(_WindowDim.x-1, pos.x), 0))[_Window.w];
+	int2 range = floor(_Window.xy + _Window.z * LOAD_TENSOR(_Window, uint2(min(_WindowDim.x-1, pos.x), 0))[(int)_Window.w]);
 	bool4 mask = range.x <= index && index < range.y;
 	#if defined(FUNC_GROUPNORM) // torch.nn.functional.group_norm
 		O = (X*R[0]-R[1]) * rsqrt(_Eps*(R[0]*R[0]) + max(0, R[2]*R[0]-R[1]*R[1])); // R[n] is sum of n-th powers

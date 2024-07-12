@@ -13,37 +13,28 @@ Comparison to [Unity Sentis](https://unity.com/products/sentis):
 
 ## Supported model
 
-The following architectures are supported:
+The following language models are supported (\* means experimental):
 
-[GPT2](https://huggingface.co/docs/transformers/main/en/model_doc/gpt2),
-[GPT-Neo](https://huggingface.co/docs/transformers/main/en/model_doc/gpt_neo),
-[GPT-NeoX](https://huggingface.co/docs/transformers/main/en/model_doc/gpt_neox),
-[Phi](https://huggingface.co/docs/transformers/main/en/model_doc/phi),
-[Llama2](https://huggingface.co/docs/transformers/main/en/model_doc/llama2),
-[Mistral](https://huggingface.co/docs/transformers/main/en/model_doc/mistral),
-[Qwen2](https://huggingface.co/docs/transformers/main/en/model_doc/qwen2),
-[Gemma](https://huggingface.co/docs/transformers/main/en/model_doc/gemma),
-[Phi3](https://huggingface.co/docs/transformers/main/en/model_doc/phi3),
-OpenELM (experimental),
-[VITS](https://huggingface.co/docs/transformers/main/en/model_doc/vits) (experimental)
+| Supported architectures | Tested models |
+|-------------------------|---------------|
+| [GPT2](https://huggingface.co/docs/transformers/main/en/model_doc/gpt2)         | [LaMini-GPT-124M](https://huggingface.co/MBZUAI/LaMini-GPT-124M)
+| [GPT-Neo](https://huggingface.co/docs/transformers/main/en/model_doc/gpt_neo)   | [TinyStories-33M](https://huggingface.co/roneneldan/TinyStories-33M)
+| [GPT-NeoX](https://huggingface.co/docs/transformers/main/en/model_doc/gpt_neox) | [pythia-70m-deduped](https://huggingface.co/EleutherAI/pythia-70m-deduped)
+| [Phi](https://huggingface.co/docs/transformers/main/en/model_doc/phi)           | [phi-1_5](https://huggingface.co/microsoft/phi-1_5)
+| [Phi3](https://huggingface.co/docs/transformers/main/en/model_doc/phi3)         | [Phi-3-mini-4k-instruct](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct)
+| [Llama2](https://huggingface.co/docs/transformers/main/en/model_doc/llama2)     | [TinyLlama-1.1B-Chat-v1.0](https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0)
+| [Llama3](https://huggingface.co/docs/transformers/main/en/model_doc/llama3)     |
+| [Mistral](https://huggingface.co/docs/transformers/main/en/model_doc/mistral)   |
+| [StableLM](https://huggingface.co/docs/transformers/main/en/model_doc/stablelm) |
+| [Qwen2](https://huggingface.co/docs/transformers/main/en/model_doc/qwen2)       | [Qwen2-0.5B-Instruct](https://huggingface.co/Qwen/Qwen2-0.5B-Instruct)
+| [Gemma](https://huggingface.co/docs/transformers/main/en/model_doc/gemma)       | [gemma-2b-it](https://huggingface.co/google/gemma-2b-it)
+| OpenELM\*                                                                       | [OpenELM-270M-Instruct](https://huggingface.co/apple/OpenELM-270M-Instruct)
+| [T5](https://huggingface.co/docs/transformers/main/en/model_doc/t5)\*           | [t5-small](https://huggingface.co/google-t5/t5-small)
+| [VITS](https://huggingface.co/docs/transformers/main/en/model_doc/vits)\*       | [mms-tts-eng](https://huggingface.co/facebook/mms-tts-eng)
 
 The following quantizations are supported:
 
 [GPTQ](https://github.com/IST-DASLab/gptq/) (4bit, 8bit, act-order)
-
-The following models are tested:
-
-* [TinyStories-33M](https://huggingface.co/roneneldan/TinyStories-33M) (GPT-Neo)
-* [pythia-70m-deduped](https://huggingface.co/EleutherAI/pythia-70m-deduped) (GPT-NeoX)
-* [Minueza-32M-UltraChat](https://huggingface.co/Felladrin/Minueza-32M-UltraChat) (Mistral)
-* [LaMini-GPT-124M](https://huggingface.co/MBZUAI/LaMini-GPT-124M) (GPT2)
-* [Qwen2-0.5B-Instruct](https://huggingface.co/Qwen/Qwen2-0.5B-Instruct) (Qwen2)
-* [TinyLlama-1.1B-Chat-v1.0](https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0) (Llama2)
-* [phi-1_5](https://huggingface.co/microsoft/phi-1_5) (Phi)
-* [gemma-2b-it](https://huggingface.co/google/gemma-2b-it) (Gemma)
-* [OpenELM-270M-Instruct](https://huggingface.co/apple/OpenELM-270M-Instruct) (OpenELM)
-* [Phi-3-mini-4k-instruct](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct) (Phi3)
-* [mms-tts-eng](https://huggingface.co/facebook/mms-tts-eng) (VITS)
 
 ## Import a model
 

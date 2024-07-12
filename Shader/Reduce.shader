@@ -24,7 +24,7 @@ HLSLINCLUDE
 uint4 _OutputDim;
 DEFINE_TEXTURE2D(_InputTex);  uint4 _InputDim;
 DEFINE_TEXTURE2D(_WindowTex); uint4 _WindowDim;
-uniform uint4  _Window;
+uniform float4 _Window;
 uniform uint   _IndexMod;
 uniform float  _Scale;
 uniform float4 _Linear0;
@@ -47,7 +47,7 @@ float4 main(uint2 pos, uint threadId, uint groupSize) {
 	// output[i,j].yw = torch.max(input[i,j*K+k][c], dim=(k,c))
 
 	uint K = (_InputDim.y+_OutputDim.y-1)/_OutputDim.y, jK = pos.y*K;
-	int2 range = _Window.xy + _Window.z * (uint)(int)LOAD_TENSOR(_Window, uint2(min(_WindowDim.x-1, pos.x), 0))[_Window.w];
+	int2 range = floor(_Window.xy + _Window.z * LOAD_TENSOR(_Window, uint2(min(_WindowDim.x-1, pos.x), 0))[(int)_Window.w]);
 	#if defined(REDUCE_SUMPOW)
 		float4 O = 0;
 	#elif defined(REDUCE_SUMEXP)
