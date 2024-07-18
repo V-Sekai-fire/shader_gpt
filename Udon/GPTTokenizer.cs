@@ -5,13 +5,7 @@ using VRC.SDK3.Data;
 
 namespace ShaderGPT.Udon {
 [DefaultExecutionOrder(-1)] // make it run before pipeline
-#if UDON
-[UdonSharp.UdonBehaviourSyncMode(UdonSharp.BehaviourSyncMode.None)]
-public class GPTTokenizer : UdonSharp.UdonSharpBehaviour
-#else
-public class GPTTokenizer : MonoBehaviour
-#endif
-{
+public class GPTTokenizer : UdonMonoBehaviour {
 	[Header("Tokenizer")]
 	public TextAsset tokenizerJson;
 

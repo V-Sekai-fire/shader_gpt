@@ -1,13 +1,7 @@
 ﻿using UnityEngine;
 
 namespace ShaderGPT.Udon {
-#if UDON
-[UdonSharp.UdonBehaviourSyncMode(UdonSharp.BehaviourSyncMode.None)]
-public class GPTPipeline : UdonSharp.UdonSharpBehaviour
-#else
-public class GPTPipeline : MonoBehaviour
-#endif
-{
+public class GPTPipeline : UdonMonoBehaviour {
 	public GPTTokenizer tokenizer;
 	public GPTGenerator generator;
 
@@ -19,11 +13,7 @@ public class GPTPipeline : MonoBehaviour
 
 	private bool eos;
 	public void OnEnable() {
-#if UDON
-		generator.eventTarget = (VRC.Udon.UdonBehaviour)(Component)this;
-#else
 		generator.eventTarget = this;
-#endif
 		generator.eventMethod = nameof(OnOutputToken);
 		
 		generator.inputTokens = tokenizer.Encode(inputText.text);

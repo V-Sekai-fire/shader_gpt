@@ -326,7 +326,8 @@ def export_tokenizer(tokenizer, folder):
 		vocab = [fixed[i] or tokenizer.decode([0, i])[prefix_len:].encode() for i in range(len(vocab))]
 
 	# extract model
-	merges = []
+	merges = None
+	weights = None
 	if fast_tokenizer is not None:
 		config = json.loads(fast_tokenizer.to_str())
 		if type(fast_tokenizer.model).__name__ == "BPE":
@@ -338,7 +339,8 @@ def export_tokenizer(tokenizer, folder):
 
 	added_tokens = [k for k, v in sorted(tokenizer.added_tokens_encoder.items(), key=lambda item: item[1])]
 	vocab = ["".join(chr(b) for b in token) for token in vocab]
-	merges = [f"{vocab[i]} {vocab[j]}" for i, j in merges]
+	if merges is not None:
+		merges = [f"{vocab[i]} {vocab[j]}" for i, j in merges]
 
 	# extract chat_template
 	chat_templates = {}
@@ -363,11 +365,12 @@ def export_tokenizer(tokenizer, folder):
 	unescape_brackets = lambda x: x.replace(r"\\u00", r"\u00")
 	output = unescape_brackets(json.dumps(dict(
 		vocab  = escape_brackets(vocab),
-		merges = escape_brackets(merges),
+		merges = escape_brackets(merges) if merges is not None else None,
+		weights = weights,
 		bos_token_id = tokenizer.bos_token_id,
 		eos_token_id = tokenizer.eos_token_id,
 		added_tokens = added_tokens,
-		chat_templates = chat_templates,
+		chat_templates = chat_templates or None,
 	), ensure_ascii=True, indent=2))
 
 	os.makedirs(folder, exist_ok=True)
