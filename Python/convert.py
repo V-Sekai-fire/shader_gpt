@@ -343,7 +343,7 @@ def export_tokenizer(tokenizer, folder):
 		merges = [f"{vocab[i]} {vocab[j]}" for i, j in merges]
 
 	# extract chat_template
-	chat_templates = {}
+	chat_templates = None
 	if tokenizer.chat_template is not None:
 		messages = [
 			{"role": "system", "content": "{0}"},
@@ -355,6 +355,7 @@ def export_tokenizer(tokenizer, folder):
 		except: # system role is not supported
 			messages = (messages[1:]*2)[:3]
 		last_text = ""
+		chat_templates = {}
 		for i in range(3):
 			text = tokenizer.apply_chat_template(messages[:i+1], tokenize=False)
 			chat_templates[messages[i]["role"]] = text[len(last_text):]
@@ -364,12 +365,13 @@ def export_tokenizer(tokenizer, folder):
 	escape_brackets = lambda lst: [re.sub(r'[\[\]\{\}]', lambda m: f"\\u{ord(m.group()) :04X}", x) for x in lst]
 	unescape_brackets = lambda x: x.replace(r"\\u00", r"\u00")
 	output = unescape_brackets(json.dumps(dict(
-		vocab  = escape_brackets(vocab),
-		merges = escape_brackets(merges) if merges is not None else None,
-		weights = weights,
+		added_tokens = added_tokens,
+		vocab        = escape_brackets(vocab),
+		merges       = escape_brackets(merges) if merges is not None else None,
+		weights      = weights,
 		bos_token_id = tokenizer.bos_token_id,
 		eos_token_id = tokenizer.eos_token_id,
-		added_tokens = added_tokens,
+		unk_token_id = tokenizer.unk_token_id,
 		chat_templates = chat_templates or None,
 	), ensure_ascii=True, indent=2))
 

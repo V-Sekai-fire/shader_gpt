@@ -42,10 +42,10 @@ public class VitsEncoder : PretrainedModel<VitsConfig> {
 	Texture VitsFeedForward(string path, Texture hidden_states, (Vector4,Texture) padding_mask) {
 		var size0 = ctx.Size0(hidden_states);
 		hidden_states = nn.Transpose(hidden_states, size0:ctx.Size1(hidden_states)*4);
+		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), window:padding_mask)); // truncate input
 		hidden_states = BatchRelease(Conv1d($"{path}.conv_1", MarkRelease(hidden_states), config.ffn_kernel_size));
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), window:padding_mask, func:TensorNN.ActFn(config.hidden_act)));
 		hidden_states = BatchRelease(Conv1d($"{path}.conv_2", MarkRelease(hidden_states), config.ffn_kernel_size));
-		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), window:padding_mask));
 		hidden_states = BatchRelease(nn.Transpose(MarkRelease(hidden_states), size0:size0));
 		return hidden_states;
 	}

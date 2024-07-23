@@ -9,35 +9,42 @@ public class GPTTokenizer : UdonMonoBehaviour {
 	[Header("Tokenizer")]
 	public TextAsset tokenizerJson;
 
+	private string[] added_tokens;
 	private string[] vocab;
 	private string[] merges;
-	private string[] added_tokens;
+	private float [] weights;
+	[System.NonSerialized] public int bos_token_id;
 	[System.NonSerialized] public int eos_token_id;
+	[System.NonSerialized] public int unk_token_id;
 	void LoadTokenizer() {
 #if UDON
-		if(!VRCJson.TryDeserializeFromJson(tokenizerJson.text, out var tokenizer_))
-			Debug.LogError($"tokenizer_: {tokenizer_}");
-		else if(!tokenizer_.DataDictionary.TryGetValue("vocab", TokenType.DataList, out var vocab_))
-			Debug.LogError($"vocab_: {vocab_}");
-		else if(!tokenizer_.DataDictionary.TryGetValue("merges", TokenType.DataList, out var merges_))
-			Debug.LogError($"merges_: {merges_}");
-		else if(!tokenizer_.DataDictionary.TryGetValue("eos_token_id", TokenType.Double, out var eos_token_id_))
-			Debug.LogError($"eos_token_id_: {eos_token_id_}");
-		else {
-			vocab = ToStringArray(vocab_.DataList);
-			merges = ToStringArray(merges_.DataList);
-			eos_token_id = (int)eos_token_id_.Double;
-			if(tokenizer_.DataDictionary.TryGetValue("added_tokens", TokenType.DataList, out var added_tokens_))
-				added_tokens = ToStringArray(added_tokens_.DataList);
-			else
-				added_tokens = null;
-		}
+		VRCJson.TryDeserializeFromJson(tokenizerJson.text, out var tokenizer);
+		added_tokens = GetStringArray(tokenizer.DataDictionary, nameof(added_tokens));
+		vocab        = GetStringArray(tokenizer.DataDictionary, nameof(vocab));
+		merges       = GetStringArray(tokenizer.DataDictionary, nameof(merges));
+		weights      = GetFloatArray (tokenizer.DataDictionary, nameof(weights));
+		bos_token_id = GetInt        (tokenizer.DataDictionary, nameof(bos_token_id), -1);
+		eos_token_id = GetInt        (tokenizer.DataDictionary, nameof(eos_token_id), -1);
+		unk_token_id = GetInt        (tokenizer.DataDictionary, nameof(unk_token_id), -1);
 #else
 		var tokenizer = JsonUtility.FromJson<Tokenizer>(tokenizerJson.text);
-		vocab = tokenizer.vocab;
-		merges = tokenizer.merges;
-		eos_token_id = tokenizer.eos_token_id;
 		added_tokens = tokenizer.added_tokens;
+		vocab        = tokenizer.vocab;
+		merges       = tokenizer.merges;
+		weights      = tokenizer.weights;
+		bos_token_id = tokenizer.bos_token_id;
+		eos_token_id = tokenizer.eos_token_id;
+		unk_token_id = tokenizer.unk_token_id;
+	}
+	[System.Serializable]
+	public class Tokenizer {
+		public string[] added_tokens;
+		public string[] vocab;
+		public string[] merges;
+		public float [] weights;
+		public int bos_token_id = -1;
+		public int eos_token_id = -1;
+		public int unk_token_id = -1;
 #endif
 	}
 
@@ -75,14 +82,13 @@ public class GPTTokenizer : UdonMonoBehaviour {
 	const int MAX_TOKENS = 16384;
 	private int[] tokenArray = new int[MAX_TOKENS];
 	private int tokenCount;
-	public int[] Encode(string text, bool split_special_tokens=true) {
+	public int[] Encode(string text) {
 		tokenCount = 0;
 		var textLen = text.Length;
 		for(int i=0; i<textLen; ) {
-			// from PreTrainedTokenizer.tokenize
 			var j = textLen;
 			var token = default(string);
-			if(split_special_tokens && added_tokens != null)
+			if(added_tokens != null)
 				foreach(var t in added_tokens) {
 					var k = text.IndexOf(t, i) & 0x7FFFFFFF;
 					if(k < j) {
@@ -90,10 +96,12 @@ public class GPTTokenizer : UdonMonoBehaviour {
 						token = t;
 					}
 				}
-			// from GPT2Tokenizer._tokenize
 			while(i < j) {
-				var k = SplitNextToken(text, i, j);
-				BytePairEncode(System.Text.Encoding.UTF8.GetBytes(text, i, k-i));
+				var k = PreTokenize(text, i, j);
+				if(weights != null)
+					UnigramEncode(System.Text.Encoding.UTF8.GetBytes(text, i, k-i));
+				else
+					BytePairEncode(System.Text.Encoding.UTF8.GetBytes(text, i, k-i));
 				i = k;
 			}
 			if(token != null) {
@@ -144,33 +152,77 @@ public class GPTTokenizer : UdonMonoBehaviour {
 			System.Array.Copy(parts, minPos+1, parts, minPos, n-minPos);
 		}
 	}
+	private void UnigramEncode(byte[] bytes) {
+		var n = bytes.Length;
+		var chars = new char[n];
+		System.Array.Copy(bytes, chars, n);
+		var bstr = new string(chars);
+		var dp = new Vector2[n];
+		for(int i=n-1; i>=0; i--) {
+			var bestSum = float.NegativeInfinity;
+			var bestIdx = i+1;
+			var dpJ = default(Vector2);
+			for(int j=n; j>i; dpJ=dp[--j]) {
+				var chunk = bstr.Substring(i, j-i);
+				var index = System.Array.IndexOf(vocab, chunk);
+				if(index < 0)
+					continue;
+				var sum = dpJ.x + weights[index];
+				if(sum > bestSum) {
+					bestSum = sum;
+					bestIdx = j;
+				}
+			}
+			if(float.IsInfinity(bestSum)) {
+				int j = i+1;
+				while(j<n && char.ConvertToUtf32(bstr, j) < 0xC0)
+					j ++;
+				dpJ = j<n ? dp[j] : default;
+				bestSum = dpJ.x + weights[unk_token_id];
+				bestIdx = j;
+			}
+			dp[i] = new Vector2(bestSum, bestIdx);
+			// Debug.Log($"dp[{i}]: {bestSum} {bestIdx}");
+		}
+		for(int i=0; i<n;) {
+			var j = (int)dp[i].y;
+			var chunk = bstr.Substring(i, j-i);
+			var index = System.Array.IndexOf(vocab, chunk);
+			if(index < 0)
+				index = unk_token_id;
+			tokenArray[tokenCount++] = index;
+			i = j;
+		}
+	}
 
-	static int SplitNextToken(string text, int start, int stop) {
+	static string Normalize(string text) {
+		return text.Normalize(); // NFC normalizer
+	}
+	static int PreTokenize(string text, int start, int stop) {
 		var i = start;
-		var ch = char.ConvertToUtf32(text, i);
-		// from GPT2Tokenizer.pat
-		if(ch == ' ') {
-			i++;
-			if(i == stop)
-				return i;
+		// consume \s*(?!(?<= )\S)| ?(?=\S)
+		while(i < stop && char.IsWhiteSpace(text, i))
+			i ++;
+		if(start < i && i < stop && char.ConvertToUtf32(text, i-1) == ' ')
+			if(start < i-1) // split space for Metaspace
+				return i-1;
+		// split (?<=\p{L})[^\p{L}\p{N}\p{M}>]|(?<=\p{N})[^\p{L}\p{N}\p{M}>\p{P}] for ByteLevel
+		var lastIsLN = false;
+		while(i < stop && !char.IsWhiteSpace(text, i)) {
+			var isLN = char.IsLetter(text, i) || char.IsNumber(text, i);
+			if(!isLN && lastIsLN && !(char.IsNumber(text, i-1) && char.IsPunctuation(text, i))) {
+				var cat = (int)char.GetUnicodeCategory(text, i);
+				if((5 > cat || cat > 7) && char.ConvertToUtf32(text, i) != '>') // exclude marks and html tags
+					return i;
+			}
+			lastIsLN = isLN;
+			i ++;
 		}
-		if(char.IsLetter(text, i) || ch == '\'' || ch == '\u2019') {
-			do {
-				if(++i >= stop) break;
-			} while(char.IsLetter(text, i));
-		} else if(char.IsNumber(text, i)) {
-			do {
-				if(++i >= stop) break;
-			} while(char.IsNumber(text, i));
-		} else if(char.IsWhiteSpace(text, i)) {
-			do {
-				if(++i >= stop) break;
-			} while(char.IsWhiteSpace(text, i));
-		} else {
-			do {
-				if(++i >= stop) break;
-			} while(!char.IsLetter(text, i) && !char.IsNumber(text, i) && !char.IsWhiteSpace(text, i));
-		}
+		// consume \s*(?!(?<= )\S)
+		while(i < stop && char.IsWhiteSpace(text, i))
+			i ++;
+		if(start < i && i < stop && char.ConvertToUtf32(text, i-1) == ' ')
+			i --;
 		return i;
 	}
 	static T[] Take<T>(T[] src, int n) {
@@ -179,20 +231,30 @@ public class GPTTokenizer : UdonMonoBehaviour {
 		return dst;
 	}
 #if UDON
-	static string[] ToStringArray(DataList lst) {
-		var n = lst.Count;
-		var arr = new string[n];
-		for(int i=0; i<n; i++)
-			arr[i] = lst[i].String;
+	static string[] GetStringArray(DataDictionary dict, string key) {
+		if(!dict.TryGetValue(key, TokenType.DataList, out var value_))
+			return null;
+		var list = value_.DataList;
+		var cnt = list.Count;
+		var arr = new string[cnt];
+		for(int i=0; i<cnt; i++)
+			arr[i] = list[i].String;
 		return arr;
 	}
-#else
-	[System.Serializable]
-	public class Tokenizer {
-		public string[] vocab;
-		public string[] merges;
-		public string[] added_tokens;
-		public int eos_token_id;
+	static float[] GetFloatArray(DataDictionary dict, string key) {
+		if(!dict.TryGetValue(key, TokenType.DataList, out var value_))
+			return null;
+		var list = value_.DataList;
+		var cnt = list.Count;
+		var arr = new float[cnt];
+		for(int i=0; i<cnt; i++)
+			arr[i] = (float)list[i].Double;
+		return arr;
+	}
+	static int GetInt(DataDictionary dict, string key, int @default) {
+		if(!dict.TryGetValue(key, TokenType.Double, out var value_))
+			return @default;
+		return (int)value_.Double;
 	}
 #endif
 }

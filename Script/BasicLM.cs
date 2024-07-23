@@ -14,6 +14,7 @@ public class BasicLM : MonoBehaviour {
 	public TextAsset tokenizerJson;
 	public TextAsset testcaseJson;
 	public GenerationConfig generationConfig;
+	public int encoderMaxLength = 2048;
 
 	public enum Task {
 		Run = 0,
@@ -148,7 +149,7 @@ public class BasicLM : MonoBehaviour {
 	void Bake() {
 		var input = ctx.GPUTensor(1, 1);
 		if(model is ModelForSeq2SeqLM) {
-			var encoder_input = ctx.CPUTensor(generationConfig.max_length, 1);
+			var encoder_input = ctx.CPUTensor(encoderMaxLength, 1);
 			nn.Copy(input, ctx.Slice(encoder_input,  1, 1));
 			var encoder_output = ((ModelForSeq2SeqLM)model).ForSeq2SeqLM(encoder_input, null);
 			ctx.Release(encoder_output.encoder_hidden_states);

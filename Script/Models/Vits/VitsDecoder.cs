@@ -24,7 +24,8 @@ public class VitsDecoder : PretrainedModel<VitsConfig> {
 		return hidden_states;
 	}
 	public Texture VitsHifiGan(Texture spectrogram, (Vector4,Texture) padding_mask, string path="decoder") {
-		var hidden_states = Conv1d($"{path}.conv_pre", spectrogram, 7);
+		var hidden_states = nn.Fusion(spectrogram, window:padding_mask); // truncate input
+		hidden_states = BatchRelease(Conv1d($"{path}.conv_pre", MarkRelease(hidden_states), 7));
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), window:padding_mask));
 		for(int i=0; i<num_upsamples; i++) {
 			hidden_states = BatchRelease(LeakyRelu(MarkRelease(hidden_states), config.leaky_relu_slope));

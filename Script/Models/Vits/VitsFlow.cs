@@ -37,12 +37,12 @@ public class VitsFlow : PretrainedModel<VitsConfig> {
 		hidden_states = BatchRelease(nn.Fusion(MarkRelease(hidden_states), window:padding_mask));
 		VitsWaveNet($"{path}.wavenet", ref hidden_states, padding_mask, num_layers:config.prior_encoder_num_wavenet_layers);
 		var mean = BatchRelease(Conv1d($"{path}.conv_post", MarkRelease(hidden_states), 1));
-
 		var diff = BatchRelease(nn.Fusion(MarkRelease(mean), scale:reverse?-1:+1, add:second_half, window:padding_mask));
 		nn.Copy(second_half, diff);
 		ctx.Release(diff);
 	}
 	public void VitsResidualCouplingBlock(ref RenderTexture inputs, (Vector4,Texture) padding_mask, bool reverse, string path="flow") {
+		inputs = (RenderTexture)BatchRelease(nn.Fusion(MarkRelease(inputs), window:padding_mask)); // truncate input
 		for(int i=0; i<config.prior_encoder_num_flows; i++) {
 			inputs = !reverse ? inputs : (RenderTexture)BatchRelease(nn.Flip(MarkRelease(inputs)));
 			VitsResidualCouplingLayer($"{path}.flows.{(reverse?config.prior_encoder_num_flows-1-i:i)}", ref inputs, padding_mask, reverse);
