@@ -13,7 +13,7 @@ public class GPTPipeline : UdonMonoBehaviour {
 
 	private bool eos;
 	public void OnEnable() {
-		generator.eventTarget = this;
+		generator.eventTarget = this.AsUdonBehaviour();
 		generator.eventMethod = nameof(OnOutputToken);
 		
 		generator.inputTokens = tokenizer.Encode(inputText.text);

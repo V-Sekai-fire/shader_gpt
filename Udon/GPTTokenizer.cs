@@ -19,13 +19,13 @@ public class GPTTokenizer : UdonMonoBehaviour {
 	void LoadTokenizer() {
 #if UDON
 		VRCJson.TryDeserializeFromJson(tokenizerJson.text, out var tokenizer);
-		added_tokens = GetStringArray(tokenizer.DataDictionary, nameof(added_tokens));
-		vocab        = GetStringArray(tokenizer.DataDictionary, nameof(vocab));
-		merges       = GetStringArray(tokenizer.DataDictionary, nameof(merges));
-		weights      = GetFloatArray (tokenizer.DataDictionary, nameof(weights));
-		bos_token_id = GetInt        (tokenizer.DataDictionary, nameof(bos_token_id), -1);
-		eos_token_id = GetInt        (tokenizer.DataDictionary, nameof(eos_token_id), -1);
-		unk_token_id = GetInt        (tokenizer.DataDictionary, nameof(unk_token_id), -1);
+		added_tokens = tokenizer.GetStringArray(nameof(added_tokens));
+		vocab        = tokenizer.GetStringArray(nameof(vocab));
+		merges       = tokenizer.GetStringArray(nameof(merges));
+		weights      = tokenizer.GetFloatArray (nameof(weights));
+		bos_token_id = tokenizer.GetInt        (nameof(bos_token_id), -1);
+		eos_token_id = tokenizer.GetInt        (nameof(eos_token_id), -1);
+		unk_token_id = tokenizer.GetInt        (nameof(unk_token_id), -1);
 #else
 		var tokenizer = JsonUtility.FromJson<Tokenizer>(tokenizerJson.text);
 		added_tokens = tokenizer.added_tokens;
@@ -37,7 +37,7 @@ public class GPTTokenizer : UdonMonoBehaviour {
 		unk_token_id = tokenizer.unk_token_id;
 	}
 	[System.Serializable]
-	public class Tokenizer {
+	class Tokenizer {
 		public string[] added_tokens;
 		public string[] vocab;
 		public string[] merges;
@@ -230,32 +230,5 @@ public class GPTTokenizer : UdonMonoBehaviour {
 		System.Array.Copy(src, dst, n);
 		return dst;
 	}
-#if UDON
-	static string[] GetStringArray(DataDictionary dict, string key) {
-		if(!dict.TryGetValue(key, TokenType.DataList, out var value_))
-			return null;
-		var list = value_.DataList;
-		var cnt = list.Count;
-		var arr = new string[cnt];
-		for(int i=0; i<cnt; i++)
-			arr[i] = list[i].String;
-		return arr;
-	}
-	static float[] GetFloatArray(DataDictionary dict, string key) {
-		if(!dict.TryGetValue(key, TokenType.DataList, out var value_))
-			return null;
-		var list = value_.DataList;
-		var cnt = list.Count;
-		var arr = new float[cnt];
-		for(int i=0; i<cnt; i++)
-			arr[i] = (float)list[i].Double;
-		return arr;
-	}
-	static int GetInt(DataDictionary dict, string key, int @default) {
-		if(!dict.TryGetValue(key, TokenType.Double, out var value_))
-			return @default;
-		return (int)value_.Double;
-	}
-#endif
 }
 }

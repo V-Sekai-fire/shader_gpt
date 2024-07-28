@@ -1,7 +1,7 @@
 using UnityEngine;
 using UnityEngine.Rendering;
 #if UDON
-using Shader = VRC.SDKBase.VRCShader;
+using MonoBehaviour = VRC.Udon.Common.Interfaces.IUdonEventReceiver;
 using Graphics = VRC.SDKBase.VRCGraphics;
 using AsyncGPUReadbackRequest = VRC.SDK3.Rendering.VRCAsyncGPUReadbackRequest;
 #endif
@@ -13,24 +13,13 @@ public class GPTGenerator : UdonMonoBehaviour {
 	public float temperature = 0;
 	public float repetitionPenalty = 1f;
 	public int frameStep = 1;
-#if UDON
-	public UdonSharp.UdonSharpBehaviour eventTarget;
-#else
 	public MonoBehaviour eventTarget;
-#endif
 	public string eventMethod;
-
-	private int _InputTex;
-	private int _OutputTex;
-	void LoadIds() {
-		_InputTex  = Shader.PropertyToID(nameof(_InputTex));
-		_OutputTex = Shader.PropertyToID(nameof(_OutputTex));
-	}
 
 	private Material[] matEncoders;
 	private Texture2D texTokens;
 	void LoadEncoder() {
-		texTokens  = (Texture2D)matEncoders[0].GetTexture(_InputTex);
+		texTokens = (Texture2D)matEncoders[0].GetTexture("_InputTex");
 	}
 
 	private Material[] matDecoders;
@@ -41,15 +30,15 @@ public class GPTGenerator : UdonMonoBehaviour {
 	void LoadDecoder() {
 		var maxPosLength = 0;
 		foreach(var mat in matDecoders) {
-			var rt = (RenderTexture)mat.GetTexture(_OutputTex);
+			var rt = (RenderTexture)mat.GetTexture("_OutputTex");
 			maxPosLength = Mathf.Max(maxPosLength, rt.height);
 		}
 		maxLength = Mathf.Min(maxLength, maxPosLength);
 
 		matOutput = matDecoders[matDecoders.Length-1];
-		bufOutput = (RenderTexture)matOutput.GetTexture(_OutputTex);
+		bufOutput = (RenderTexture)matOutput.GetTexture("_OutputTex");
 		foreach(var mat in matDecoders) {
-			var rt = (RenderTexture)mat.GetTexture(_OutputTex);
+			var rt = (RenderTexture)mat.GetTexture("_OutputTex");
 			if(mat.shaderKeywords.Length == 1) {
 				var keyword = mat.shaderKeywords[0];
 				if(keyword == "FUNC_RELU")
@@ -115,7 +104,7 @@ public class GPTGenerator : UdonMonoBehaviour {
 	private RenderTexture[] deferList = new RenderTexture[16];
 	private int deferCount;
 	void Blit(Material mat) {
-		var rt = (RenderTexture)mat.GetTexture(_OutputTex);
+		var rt = (RenderTexture)mat.GetTexture("_OutputTex");
 		// merge GenerateMips to reduce PS/CS switch
 		if(rt.useMipMap && !rt.autoGenerateMips)
 			deferList[deferCount++] = rt;
@@ -128,7 +117,6 @@ public class GPTGenerator : UdonMonoBehaviour {
 	private int frameIndex;
 	public void OnEnable() {
 		if(matDecoders == null) {
-			LoadIds();
 			var renderers = modelPrefab.GetComponentsInChildren<MeshRenderer>();
 			Debug.Assert(renderers.Length == 1 || renderers.Length == 2);
 			if(renderers.Length == 2) {
@@ -165,11 +153,7 @@ public class GPTGenerator : UdonMonoBehaviour {
 		outputIndex = Mathf.RoundToInt(data[1]);
 		if(outputIndex >= inputIndex)
 			return; // skip tokens from last sequence
-#if UDON
-		eventTarget.SendCustomEvent(eventMethod);
-#else
 		eventTarget.SendMessage(eventMethod);
-#endif
 	}
 
 	private float[] readbackData;
@@ -180,11 +164,7 @@ public class GPTGenerator : UdonMonoBehaviour {
 			return;
 		if(readbackData == null)
 			readbackData = new float[request.width*request.height*4];
-#if UDON
-		request.TryGetData(readbackData);
-#else
 		request.GetData<float>().CopyTo(readbackData);
-#endif
 		OnGPUReadback(readbackData);
 	}
 }
