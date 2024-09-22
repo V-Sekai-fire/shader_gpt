@@ -82,11 +82,13 @@ public abstract class PretrainedConfig<S> : PretrainedConfig where S : Pretraine
 }
 public abstract class PretrainedModel<T> : Module, PretrainedModel where T : PretrainedConfig<T> {
 	public T config;
+	public string model_type => config.model_type;
 	public PretrainedModel(TensorNN nn, T config): base(nn) {
 		this.config = config;
 	}
 }
 public interface PretrainedModel {
+	/*public*/ string model_type {get;}
 	/*public*/ void LoadStateDict(IEnumerable<Texture> textures);
 }
 }

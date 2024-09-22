@@ -64,7 +64,7 @@ public class BasicLM : MonoBehaviour {
 			else
 				Debug.Log(text);
 		} else if(task == Task.Test) {
-			Debug.Log($"Testing {this.name} ({model})");
+			Debug.Log($"Testing {this.name} ({model.model_type}: {model})");
 			Test(testcase);
 			Debug.Assert(ctx.TensorCount() == model.cache.Count);
 		} else if(task == Task.Bake) {
@@ -101,14 +101,19 @@ public class BasicLM : MonoBehaviour {
 				Debug.Log(tokenizer.vocab[token]);
 		}
 	}
-	static Dictionary<System.Type, (float,float)> testErrMap = new Dictionary<System.Type, (float,float)>() {
-		{typeof(Models.GPT2), (8e-5f, 2e-4f)},
-		{typeof(Models.GPTNeo), (5e-5f, 2e-4f)},
-		{typeof(Models.GPTNeoX), (6e-3f, 6e-3f)},
-		{typeof(Models.Llama), (1e-4f, 4e-5f)},
-		{typeof(Models.Phi), (3e-5f, 5e-5f)},
-		{typeof(Models.OpenELM), (4e-5f, 1e-4f)},
-		{typeof(Models.T5), (3e-5f, 2e-4f)},
+	static Dictionary<string, (float,float)> testErrMap = new Dictionary<string, (float,float)>() {
+		{"gpt2",     (8e-5f, 2e-4f)},
+		{"gpt_neo",  (5e-5f, 2e-4f)},
+		{"gpt_neox", (6e-3f, 6e-3f)},
+		{"openelm",  (4e-5f, 1e-4f)},
+		{"phi",      (3e-5f, 5e-5f)},
+		{"t5",       (3e-5f, 4e-5f)},
+		{"gemma",    (1e-4f, 2e-5f)}, // TODO
+		{"llama",    (2e-5f, 5e-5f)},
+		{"mistral",  (1e-5f, 3e-5f)},
+		{"phi3",     (1e-5f, 1e-5f)}, // TODO
+		{"qwen2",    (3e-4f, 1e-4f)},
+		{"stablelm", (1e-5f, 1e-5f)}, // TODO
 	};
 	int encoder_input_length;
 	void RunEncoder(Testcase testcase) {
@@ -129,7 +134,7 @@ public class BasicLM : MonoBehaviour {
 		return Mathf.RoundToInt(data[0]);
 	}
 	void Test(Testcase testcase) {
-		var (hidden_states_err, logits_err) = testErrMap[model.GetType()];
+		var (hidden_states_err, logits_err) = testErrMap[model.model_type];
 		if(model is ModelForSeq2SeqLM) {
 			encoder_input_length = testcase.encoder_input_ids.Length;
 			var encoder_input = InputTensor(testcase.encoder_input_ids, chan2:encoder_input_length);

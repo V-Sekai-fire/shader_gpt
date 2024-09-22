@@ -98,7 +98,7 @@ public class GPTTokenizer : UdonMonoBehaviour {
 				}
 			while(i < j) {
 				var k = PreTokenize(text, i, j);
-				if(weights != null)
+				if(weights != null && weights.Length > 0)
 					UnigramEncode(System.Text.Encoding.UTF8.GetBytes(text, i, k-i));
 				else
 					BytePairEncode(System.Text.Encoding.UTF8.GetBytes(text, i, k-i));

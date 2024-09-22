@@ -1,6 +1,6 @@
 # ShaderGPT
 
-Run popular language models in Unity with pixel shaders.
+Run popular small language models in Unity with pixel shaders.
 
 Comparison to [Unity Sentis](https://unity.com/products/sentis):
 
@@ -13,23 +13,24 @@ Comparison to [Unity Sentis](https://unity.com/products/sentis):
 
 ## Supported model
 
-The following language models are supported (\* means experimental):
+The following language models are supported (\* indicates experimental):
 
 | Supported architectures | Tested models |
 |-------------------------|---------------|
 | [GPT2](https://huggingface.co/docs/transformers/main/en/model_doc/gpt2)         | [LaMini-GPT-124M](https://huggingface.co/MBZUAI/LaMini-GPT-124M)
 | [GPT-Neo](https://huggingface.co/docs/transformers/main/en/model_doc/gpt_neo)   | [TinyStories-33M](https://huggingface.co/roneneldan/TinyStories-33M)
 | [GPT-NeoX](https://huggingface.co/docs/transformers/main/en/model_doc/gpt_neox) | [pythia-70m-deduped](https://huggingface.co/EleutherAI/pythia-70m-deduped)
-| [Phi](https://huggingface.co/docs/transformers/main/en/model_doc/phi)           | [phi-1_5](https://huggingface.co/microsoft/phi-1_5)
-| [Phi3](https://huggingface.co/docs/transformers/main/en/model_doc/phi3)         | [Phi-3-mini-4k-instruct](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct)
+| [Phi](https://huggingface.co/docs/transformers/main/en/model_doc/phi)           |
+| [Phi3](https://huggingface.co/docs/transformers/main/en/model_doc/phi3)         |
 | [Llama2](https://huggingface.co/docs/transformers/main/en/model_doc/llama2)     | [TinyLlama-1.1B-Chat-v1.0](https://huggingface.co/TinyLlama/TinyLlama-1.1B-Chat-v1.0)
 | [Llama3](https://huggingface.co/docs/transformers/main/en/model_doc/llama3)     |
 | [Mistral](https://huggingface.co/docs/transformers/main/en/model_doc/mistral)   |
 | [StableLM](https://huggingface.co/docs/transformers/main/en/model_doc/stablelm) |
-| [Qwen2](https://huggingface.co/docs/transformers/main/en/model_doc/qwen2)       | [Qwen2-0.5B-Instruct](https://huggingface.co/Qwen/Qwen2-0.5B-Instruct)
-| [Gemma](https://huggingface.co/docs/transformers/main/en/model_doc/gemma)       | [gemma-2b-it](https://huggingface.co/google/gemma-2b-it)
+| [Qwen2](https://huggingface.co/docs/transformers/main/en/model_doc/qwen2)       | [Qwen2.5-0.5B-Instruct](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct)
+| [Gemma](https://huggingface.co/docs/transformers/main/en/model_doc/gemma)       |
 | OpenELM\*                                                                       | [OpenELM-270M-Instruct](https://huggingface.co/apple/OpenELM-270M-Instruct)
 | [T5](https://huggingface.co/docs/transformers/main/en/model_doc/t5)\*           | [t5-small](https://huggingface.co/google-t5/t5-small)
+| [FLAN-T5](https://huggingface.co/docs/transformers/main/en/model_doc/flan-t5)\* | [flan-t5-small](https://huggingface.co/google/flan-t5-small)
 | [VITS](https://huggingface.co/docs/transformers/main/en/model_doc/vits)\*       | [mms-tts-eng](https://huggingface.co/facebook/mms-tts-eng)
 
 The following quantizations are supported:
